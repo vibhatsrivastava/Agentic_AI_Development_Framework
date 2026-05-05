@@ -12,23 +12,8 @@ A CLI tool for scaffolding production-ready LangChain projects with composable i
 
 ## Installation
 
-### For Development (Editable Install)
-
-From the repository root:
-
 ```powershell
-# Activate virtual environment
-.venv\Scripts\Activate.ps1
-
-# Install CLI in editable mode
-pip install -e cli/
-```
-
-### From PyPI (Future)
-
-Once published to PyPI:
-
-```powershell
+# From repo root — installs ai-agent-builder as an isolated uv tool (no venv needed)
 uv tool install ./cli
 ```
 

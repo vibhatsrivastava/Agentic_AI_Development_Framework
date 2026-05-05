@@ -71,48 +71,68 @@ Download from [https://git-scm.com/](https://git-scm.com/) if not installed.
 
 ---
 
-## 5. pip / Virtual Environment
+## 5. uv (Package Manager)
 
-Using a virtual environment per project is **strongly recommended**. It isolates each project's dependencies so packages installed for one project cannot conflict with those of another, and keeps your global Python installation clean.
+[uv](https://docs.astral.sh/uv/) is the package manager used throughout this repo. It replaces `pip` and `python -m venv` and is significantly faster. Each project uses an isolated `.venv` created and managed by `uv`.
 
-### Verify pip is available
+### Install uv (run once)
 
-```bash
-pip --version
-```
-
-### Create a virtual environment
-
-Run the following from the **repo root** (or from inside a specific project folder if you prefer a project-scoped env):
-
-```bash
-python -m venv venv
-```
-
-This creates a `venv/` directory that holds an isolated Python interpreter and package tree.
-
-> The `venv/` directory is listed in `.gitignore` and will never be committed.
-
-### Activate the virtual environment
-
-You must activate the environment **before** installing packages or running any script.
-
-**Windows (PowerShell):**
+**Windows (standalone installer — no Python required):**
 ```powershell
-venv\Scripts\Activate.ps1
-```
-
-**Windows (Command Prompt / cmd.exe):**
-```cmd
-venv\Scripts\activate.bat
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
 **macOS / Linux:**
 ```bash
-source venv/bin/activate
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-Once activated, your shell prompt will be prefixed with `(venv)`, confirming the environment is active.
+**Or via pip if Python is already installed:**
+```bash
+pip install uv
+```
+
+### Verify installation
+
+```bash
+uv --version    # should print uv x.x.x
+```
+
+### How virtual environments work in this repo
+
+Each project under `projects/` has its own `.venv/` directory. The CLI (`ai-agent-builder new-project`) creates it automatically — no manual setup needed:
+
+- Runs `uv venv .venv` inside the project folder
+- Runs `uv pip install -r requirements-base.txt` (test tooling)
+- Runs `uv pip install -e ./common` (installs `langchain`, `langgraph`, `langchain-ollama`, etc.)
+
+For the **root-level test suite only**, create a root `.venv` manually:
+```powershell
+uv venv .venv
+uv pip install -e ./common
+uv pip install -r requirements-base.txt
+```
+
+### Activate a project virtual environment
+
+After scaffolding, activate the project's `.venv` to run scripts:
+
+**Windows (PowerShell):**
+```powershell
+.venv\Scripts\Activate.ps1
+```
+
+**Windows (Command Prompt / cmd.exe):**
+```cmd
+.venv\Scripts\activate.bat
+```
+
+**macOS / Linux:**
+```bash
+source .venv/bin/activate
+```
+
+Once activated, your shell prompt will be prefixed with `(.venv)`, confirming the environment is active.
 
 ### Deactivate when done
 

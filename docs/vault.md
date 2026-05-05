@@ -61,7 +61,7 @@ HashiCorp Vault integration provides **centralized secret management** for teams
 
 3. **Python dependencies** (automatically installed):
    ```powershell
-   pip install -r requirements-base.txt  # Includes hvac>=2.0.0
+   uv pip install -r requirements-base.txt  # Includes hvac>=2.0.0
    ```
 
 ---
@@ -386,9 +386,9 @@ INFO | __main__ | Initialising LLM...
 
 **Solution:**
 ```powershell
-pip install hvac>=2.0.0
+uv pip install hvac>=2.0.0
 # Or reinstall all dependencies:
-pip install -r requirements-base.txt
+uv pip install -r requirements-base.txt
 ```
 
 ---

@@ -789,9 +789,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
       - name: Install dependencies
         run: |
-          pip install -r requirements-base.txt
+          uv pip install -r requirements-base.txt
+          uv pip install -e ./common
       - name: Run tests with coverage
         run: |
           pytest --cov --cov-report=term --cov-report=html --cov-fail-under=90

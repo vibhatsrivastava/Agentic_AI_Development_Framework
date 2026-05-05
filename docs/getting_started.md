@@ -40,43 +40,46 @@ OLLAMA_EMBEDDING_MODEL=nomic-embed-text
 
 ### 3. Create and Activate a Virtual Environment
 
-Creating a virtual environment prevents dependency conflicts between projects and keeps your global Python installation clean.
+> Install `uv` first if you haven't: see [prerequisites.md](prerequisites.md#5-uv-package-manager).
 
-```bash
+```powershell
 # From the repo root
-python -m venv venv
+uv venv .venv
 ```
 
 Activate it before installing anything or running any script:
 
 **Windows (PowerShell):**
 ```powershell
-venv\Scripts\Activate.ps1
+.venv\Scripts\Activate.ps1
 ```
 
 **Windows (Command Prompt):**
 ```cmd
-venv\Scripts\activate.bat
+.venv\Scripts\activate.bat
 ```
 
 **macOS / Linux:**
 ```bash
-source venv/bin/activate
+source .venv/bin/activate
 ```
 
-Your prompt will show `(venv)` when the environment is active. See [prerequisites.md](prerequisites.md) for more details.
+Your prompt will show `(.venv)` when the environment is active. See [prerequisites.md](prerequisites.md) for more details.
 
 ### 4. Install Base Dependencies
 
-```bash
-pip install -r requirements-base.txt
+```powershell
+# Test tooling (pytest, etc.)
+uv pip install -r requirements-base.txt
+
+# Runtime dependencies: langchain, langgraph, langchain-ollama, etc.
+uv pip install -e ./common
 ```
 
 ### 5. Run a Project
 
-```bash
+```powershell
 cd projects/01_hello_langchain
-pip install -r requirements.txt      # project-specific deps, if any
 python src/main.py
 ```
 
@@ -139,32 +142,37 @@ ollama pull nomic-embed-text           # required for RAG/embedding projects
 
 ### 5. Create and Activate a Virtual Environment
 
-```bash
+```powershell
 # From the repo root
-python -m venv venv
+uv venv .venv
 ```
 
 Activate before installing packages or running scripts:
 
 **Windows (PowerShell):**
 ```powershell
-venv\Scripts\Activate.ps1
+.venv\Scripts\Activate.ps1
 ```
 
 **Windows (Command Prompt):**
 ```cmd
-venv\Scripts\activate.bat
+.venv\Scripts\activate.bat
 ```
 
 **macOS / Linux:**
 ```bash
-source venv/bin/activate
+source .venv/bin/activate
 ```
 
 ### 6. Install & Run
 
-```bash
-pip install -r requirements-base.txt
+```powershell
+# Test tooling
+uv pip install -r requirements-base.txt
+
+# Runtime dependencies: langchain, langgraph, langchain-ollama, etc.
+uv pip install -e ./common
+
 cd projects/01_hello_langchain
 python src/main.py
 ```
@@ -173,12 +181,10 @@ python src/main.py
 
 ## Shared `common/` Library
 
-All projects can import from the `common/` package:
+All projects import from the `common/` package directly. The `common/` package is installed as an editable package (`ai-agent-common`) into each project's `.venv` by the CLI scaffold — no `sys.path` manipulation needed:
 
 ```python
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
-
+# Direct import — works because ai-agent-common is installed in the project venv
 from common.llm_factory import get_llm, get_embeddings
 from common.utils import get_logger
 

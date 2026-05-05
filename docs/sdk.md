@@ -91,17 +91,30 @@ Project-specific modules generated on demand:
 
 ### Prerequisites
 - Python 3.10+ (matches repo test matrix)
-- Git repository with shared `.venv` at root
+- [uv](https://docs.astral.sh/uv/) package manager
 - `.env` file configured (copy from `.env.example`)
 
-### Install SDK (Editable Mode)
+### Install uv (run once)
 
 ```powershell
-# From repo root
-pip install -e cli/
+# Windows (standalone installer — no Python required):
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# macOS/Linux:
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Or via pip if Python is already installed:
+pip install uv
 ```
 
-This installs the `ai-agent-builder` command globally in your `.venv`.
+### Install the CLI
+
+```powershell
+# From repo root — installs ai-agent-builder as an isolated uv tool
+uv tool install ./cli
+```
+
+This installs the `ai-agent-builder` command globally without requiring an active venv.
 
 ### Verify Installation
 
@@ -113,6 +126,8 @@ ai-agent-builder --help
 # Shows available commands
 ```
 
+> **Note**: When you run `ai-agent-builder new-project`, the CLI automatically creates a `.venv` inside the new project directory, installs `requirements-base.txt`, and installs `common/` as an editable package (`ai-agent-common`). No manual venv setup is needed.
+
 ---
 
 ## Quick Start
@@ -121,11 +136,13 @@ ai-agent-builder --help
 
 ```powershell
 ai-agent-builder new-project 05_hello_lcel --arch lcel
+# ✅ CLI automatically creates .venv, installs requirements-base.txt and common/
 
 cd projects/05_hello_lcel
-cp .env.example .env
-# Edit .env with your Ollama settings
+.venv\Scripts\Activate.ps1   # Windows
+# source .venv/bin/activate  # macOS/Linux
 
+# .env is read from repo root automatically (load_dotenv searches upward)
 python src/main.py
 ```
 
@@ -145,21 +162,21 @@ python src/main.py
 ### Example 2: RAG with pgvector + Langfuse
 
 ```powershell
-ai-agent-builder new-project 06_rag_system \\
-    --arch lcel \\
+ai-agent-builder new-project 06_rag_system `
+    --arch lcel `
     --integrations pgvector,langfuse
+# ✅ CLI automatically creates .venv, installs requirements-base.txt, common/, and integration deps
 
 cd projects/06_rag_system
+.venv\Scripts\Activate.ps1   # Windows
+# source .venv/bin/activate  # macOS/Linux
 
 # Setup PostgreSQL pgvector
 psql -U postgres -c "CREATE DATABASE langchain_vectors;"
 psql -U postgres -d langchain_vectors -c "CREATE EXTENSION vector;"
 psql -U postgres -d langchain_vectors -f src/db/schema.sql
 
-# Configure .env
-cp .env.example .env
-# Add POSTGRES_*, LANGFUSE_* variables
-
+# Add POSTGRES_*, LANGFUSE_* variables to root .env
 python src/main.py
 ```
 
@@ -484,7 +501,7 @@ ai-agent-builder test projects/05_chatbot --coverage -v
 
 3. **Copy integration code**: From `cli/ai_agent_builder/templates/integrations/langfuse/`
    ```powershell
-   mkdir src/monitoring
+   New-Item -ItemType Directory -Path src/monitoring
    # Copy tracing.py template manually
    ```
 
@@ -612,7 +629,7 @@ class MyIntegration(IntegrationModule):
 **A (v0.1.0)**: Currently optimized for this monorepo structure. **v1.0.0** will support standalone usage.
 
 ### **Q: How do I add dependencies to generated projects?**
-**A**: Edit `requirements.txt` in the project directory. Base dependencies are inherited from `requirements-base.txt` at repo root.
+**A**: Edit `requirements.txt` in the project directory, then run `uv pip install -r requirements.txt` inside the project's `.venv`. Base dependencies (`requirements-base.txt`) and `common/` are pre-installed by the CLI when the project is scaffolded.
 
 ### **Q: Can I customize templates?**
 **A (v0.1.0)**: Templates are built-in. **v0.2.0** will support `--template-dir` for custom templates.

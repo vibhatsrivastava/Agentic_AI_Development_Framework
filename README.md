@@ -49,79 +49,50 @@ A curated **monorepo** of Agentic AI applications built with [LangChain](https:/
 
 > **Prerequisites**: Ensure you have [Python 3.10+, Ollama access, and Git](docs/prerequisites.md) installed.
 
-### Path 1: Using SDK (Recommended)
-
-**Fastest way to get started** — scaffold a new project in <2 minutes:
-
 ```powershell
-# 0. Install uv (replaces pip + venv — run once)
-pip install uv
-# Or use the standalone installer (no Python required):
-# Windows: powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
-# macOS/Linux: curl -LsSf https://astral.sh/uv/install.sh | sh
+# 1. Install uv (run once — replaces pip + venv)
+# Windows (standalone, no Python required):
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+# macOS/Linux:
+# curl -LsSf https://astral.sh/uv/install.sh | sh
+# Or via pip if Python is already installed:
+# pip install uv
 
-# 1. Clone and navigate to repo
+# 2. Clone and navigate to repo
 git clone https://github.com/vibhatsrivastava/Langchain_Development_Projects.git
 cd Langchain_Development_Projects
 
-# 2. Set up environment
+# 3. Set up environment
 cp .env.example .env
 # Edit .env with your OLLAMA_BASE_URL and OLLAMA_API_KEY
 
-# 3. Create and activate virtual environment
-uv venv .venv
-.venv\Scripts\Activate.ps1  # Windows PowerShell
-# source .venv/bin/activate  # macOS/Linux
-
-# 4. Install SDK and base dependencies
-uv pip install -r requirements-base.txt
+# 4. Install the CLI (isolated — no venv needed)
 uv tool install ./cli
 
 # 5. Scaffold a new project
+# The CLI automatically creates a .venv, installs requirements-base.txt and common
 ai-agent-builder new-project 02_my_rag_app --arch lcel --integrations pgvector,langfuse
 
 # 6. Run your project
 cd projects/02_my_rag_app
-uv pip install -r requirements.txt
+.venv\Scripts\Activate.ps1   # Windows
+# source .venv/bin/activate  # macOS/Linux
 python src/main.py
 ```
 
-**What the SDK generates:**
-- ✅ LCEL/LangGraph/Custom architecture templates
-- ✅ Integration code (pgvector, Redis, Langfuse, Chroma, FAISS)
-- ✅ Test fixtures with 90% coverage template
-- ✅ Pre-configured `.env.example` with all required variables
-- ✅ Production-ready utilities (rate limiting, retry logic, token counting)
+**What the CLI does automatically when scaffolding a project:**
+- ✅ Creates an isolated `.venv` inside the project directory
+- ✅ Installs `requirements-base.txt` (shared base dependencies)
+- ✅ Installs `common/` as an editable package (`ai-agent-common`)
+- ✅ Generates LCEL/LangGraph/Custom architecture from templates
+- ✅ Generates integration code (pgvector, Redis, Langfuse, Chroma, FAISS)
+- ✅ Generates test fixtures with 90% coverage template
+- ✅ Generates `.env.example` with all required variables
+- ✅ Generates README with setup instructions
 
 **Benefits**: 15 minutes → <2 minutes per project | Zero boilerplate | Composable integrations
 
 > See **[docs/sdk.md](docs/sdk.md)** for complete SDK documentation, integration catalog, and advanced usage.
-
----
-
-### Path 2: Manual Setup (Without SDK)
-
-**For running existing projects** like `01_hello_langchain`:
-
-```bash
-# 0. Install uv if not already installed
-pip install uv
-# Or: curl -LsSf https://astral.sh/uv/install.sh | sh  (macOS/Linux)
-
-# 1-3. Clone, configure .env, create and activate venv (same as Path 1)
-
-# 4. Install base dependencies only
-uv pip install -r requirements-base.txt
-
-# 5. Navigate to project and install project-specific deps
-cd projects/01_hello_langchain
-uv pip install -r requirements.txt
-
-# 6. Run the project
-python src/main.py
-```
-
-> See [docs/getting_started.md](docs/getting_started.md) for detailed setup instructions, local Ollama configuration, and troubleshooting.
 
 ---
 

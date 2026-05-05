@@ -1,6 +1,7 @@
 # ─── Testing / Dev tooling ────────────────────────────────────
-# Runtime dependencies (langchain, langgraph, etc.) are declared in
-# common/pyproject.toml and installed via: uv pip install -e ./common
+# Runtime dependencies (langchain, langgraph, langchain-ollama, langchain-community,
+# python-dotenv, hvac, etc.) are declared in common/pyproject.toml and installed via:
+#   uv pip install -e ./common
 pytest>=8.0.0             # Modern Python testing framework
 pytest-cov>=4.1.0         # Coverage plugin for pytest
 pytest-mock>=3.12.0       # Mocking utilities for pytest

@@ -298,10 +298,11 @@ HumanMessage
 
 ```
 1. Virtual environment activated (.venv)
-2. Base dependencies installed: pip install -r requirements-base.txt
-3. Project dependencies installed (see Step 1 below)
-4. .env file configured with OLLAMA_BASE_URL and OLLAMA_MODEL
-5. Ollama server running with your chosen model available
+2. Base dependencies installed: uv pip install -r requirements-base.txt
+3. Runtime dependencies installed: uv pip install -e ./common
+4. Project dependencies installed (see Step 1 below)
+5. .env file configured with OLLAMA_BASE_URL and OLLAMA_MODEL
+6. Ollama server running with your chosen model available
 ```
 
 ### Step 1 — Install Additional Dependencies
@@ -310,7 +311,7 @@ HumanMessage
 The Open-Meteo API is accessed via HTTP. Add `requests` to your project's requirements:
 
 ```bash
-pip install requests
+uv pip install requests
 ```
 
 No API key or account is needed — Open-Meteo is a free, open-source weather API.

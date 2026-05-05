@@ -215,7 +215,7 @@ module/
 
 ## Next Steps
 
-1. **Install dependencies**: `pip install -r requirements-base.txt`
+1. **Install dependencies**: `uv pip install -r requirements-base.txt && uv pip install -e ./common`
 2. **Run existing tests**: `pytest --cov --cov-report=term-missing`
 3. **Generate new tests**: Use `@test-agent generate tests for <file>`
 4. **Verify coverage**: `pytest --cov --cov-fail-under=90`
