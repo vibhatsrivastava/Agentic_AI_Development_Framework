@@ -11,7 +11,7 @@ import requests
 from pydantic import BaseModel, Field
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage
-from langchain.agents import create_agent
+from langgraph.prebuilt import create_react_agent
 from common.llm_factory import get_chat_llm
 from common.utils import get_logger
 
@@ -105,11 +105,10 @@ def build_agent():
         Compiled agent graph
     """
     llm = get_chat_llm()
-    return create_agent(
+    return create_react_agent(
         model=llm,
         tools=[get_weather],
-        system_prompt=WEATHER_SYSTEM_PROMPT,
-        response_format=WeatherReport,
+        prompt=WEATHER_SYSTEM_PROMPT,
     )
 
 

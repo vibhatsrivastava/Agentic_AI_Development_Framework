@@ -4,11 +4,10 @@ cli.py — Command-line interface for AI Agent Builder.
 Provides commands for project scaffolding, validation, and integration management.
 """
 
-import os
-import sys
 import re
+import sys
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional
 
 import click
 from dotenv import load_dotenv
@@ -28,7 +27,7 @@ load_dotenv()
 def main():
     """
     ai-agent-builder — AI Agent project scaffolding and development tools.
-    
+
     Accelerate AI Agent development with automated project generation,
     composable integration modules, and built-in best practices.
     """
@@ -69,19 +68,19 @@ def new_project(
 ):
     """
     Create a new LangChain project from templates.
-    
+
     EXAMPLES:
-    
+
         \b
         # Interactive mode (recommended for first-time users)
         ai-agent-builder new-project
-        
+
         \b
         # Non-interactive mode
         ai-agent-builder new-project 05_sentiment_analysis \\
             --architecture lcel \\
             --integrations langfuse
-        
+
         \b
         # RAG project with pgvector + Langfuse
         ai-agent-builder new-project 06_rag_system \\
@@ -92,18 +91,18 @@ def new_project(
     repo_root = Path.cwd()
     while not (repo_root / ".git").exists() and repo_root != repo_root.parent:
         repo_root = repo_root.parent
-    
+
     if not (repo_root / ".git").exists():
         click.secho("Error: Not inside a git repository", fg="red")
         sys.exit(1)
-    
+
     projects_path = repo_root / projects_dir
-    
+
     # Interactive mode
     if not non_interactive:
         click.echo(click.style("\n🚀 AI Agent Builder — Project Generator", fg="cyan", bold=True))
         click.echo()
-        
+
         # Get project name
         if not project_name:
             click.echo(f"Project name pattern: {click.style(PROJECT_NAME_EXAMPLE, fg='yellow')}")
@@ -112,7 +111,7 @@ def new_project(
                 type=str,
                 value_proc=lambda x: x.strip()
             )
-        
+
         # Validate project name
         if not re.match(PROJECT_NAME_PATTERN, project_name):
             click.secho(
@@ -120,46 +119,46 @@ def new_project(
                 fg="red"
             )
             sys.exit(1)
-        
+
         # Get architecture
         if not architecture:
             click.echo("\nAvailable architectures:")
             for key, arch in BASE_ARCHITECTURES.items():
                 click.echo(f"  {click.style(key, fg='green')}: {arch['description']}")
-            
+
             architecture = click.prompt(
                 "Select architecture",
                 type=click.Choice(list(BASE_ARCHITECTURES.keys())),
                 default="lcel"
             )
-        
+
         # Get integrations
         if not integrations:
             available_integrations = list_integrations()
-            
+
             click.echo("\nAvailable integrations:")
             by_category = {}
             for integration in available_integrations:
                 if integration.category not in by_category:
                     by_category[integration.category] = []
                 by_category[integration.category].append(integration)
-            
+
             for category, integ_list in sorted(by_category.items()):
                 click.echo(f"\n  {click.style(category.upper(), fg='cyan')}:")
                 for integration in integ_list:
                     click.echo(f"    - {click.style(integration.name, fg='green')}: {integration.description}")
-            
+
             integrations = click.prompt(
                 "\nSelect integrations (comma-separated, or 'none')",
                 type=str,
                 default="none"
             )
-    
+
     # Parse integrations
     integration_list = []
     if integrations and integrations.lower() != "none":
         integration_list = [i.strip() for i in integrations.split(",")]
-    
+
     # Validate integrations exist
     available_names = [i.name for i in list_integrations()]
     for integ_name in integration_list:
@@ -167,24 +166,24 @@ def new_project(
             click.secho(f"Error: Unknown integration '{integ_name}'", fg="red")
             click.echo(f"Available: {', '.join(available_names)}")
             sys.exit(1)
-    
+
     # Create scaffolder
     scaffolder = ProjectScaffolder(
         projects_dir=projects_path,
         repo_root=repo_root
     )
-    
+
     # Scaffold project
     click.echo()
     click.echo(click.style("📁 Creating project structure...", fg="cyan"))
-    
+
     try:
         project_path = scaffolder.scaffold_project(
             project_name=project_name,
             architecture=architecture,
             integrations=integration_list
         )
-        
+
         click.echo(click.style("✅ Project created successfully!", fg="green", bold=True))
         click.echo()
         click.echo(f"Location: {click.style(str(project_path.relative_to(repo_root)), fg='yellow')}")
@@ -197,7 +196,7 @@ def new_project(
         click.echo("  3. Copy .env.example to .env and configure")
         click.echo("  4. Run: python src/main.py")
         click.echo()
-        
+
     except Exception as e:
         click.secho(f"Error creating project: {e}", fg="red")
         sys.exit(1)
@@ -219,33 +218,33 @@ def integrations():
 def list_integrations_cmd(category: Optional[str]):
     """
     List all available integration modules.
-    
+
     EXAMPLES:
-    
+
         \b
         # List all integrations
         ai-agent-builder integrations list
-        
+
         \b
         # List only vector stores
         ai-agent-builder integrations list --category vector_store
     """
     integrations_list = list_integrations(category=category)
-    
+
     if not integrations_list:
         click.echo("No integrations available.")
         return
-    
+
     click.echo(click.style("\n📦 Available Integrations", fg="cyan", bold=True))
     click.echo()
-    
+
     # Group by category
     by_category = {}
     for integration in integrations_list:
         if integration.category not in by_category:
             by_category[integration.category] = []
         by_category[integration.category].append(integration)
-    
+
     for cat, integ_list in sorted(by_category.items()):
         click.echo(click.style(f"{cat.upper()}:", fg="yellow", bold=True))
         for integration in integ_list:
@@ -258,45 +257,45 @@ def list_integrations_cmd(category: Optional[str]):
 def integration_info(integration_name: str):
     """
     Show detailed information about an integration.
-    
+
     EXAMPLES:
-    
+
         \b
         # Get pgvector integration details
         ai-agent-builder integrations info pgvector
     """
     integration = get_integration(integration_name)
-    
+
     if not integration:
         click.secho(f"Error: Integration '{integration_name}' not found", fg="red")
         sys.exit(1)
-    
+
     click.echo()
     click.echo(click.style(f"📦 {integration.display_name}", fg="cyan", bold=True))
     click.echo(integration.description)
     click.echo()
-    
+
     click.echo(click.style("Category:", fg="yellow"))
     click.echo(f"  {integration.category}")
     click.echo()
-    
+
     click.echo(click.style("Dependencies:", fg="yellow"))
     for dep in integration.get_dependencies():
         click.echo(f"  - {dep}")
     click.echo()
-    
+
     click.echo(click.style("Environment Variables:", fg="yellow"))
     for key, value in integration.get_env_vars().items():
         click.echo(f"  {key}={value}")
     click.echo()
-    
+
     prereqs = integration.get_prerequisites()
     if prereqs:
         click.echo(click.style("Prerequisites:", fg="yellow"))
         for prereq in prereqs:
             click.echo(f"  - {prereq}")
         click.echo()
-    
+
     click.echo(click.style("Generated Files:", fg="yellow"))
     for template_path, output_path in integration.get_template_files():
         click.echo(f"  {output_path}")
@@ -308,13 +307,13 @@ def integration_info(integration_name: str):
 def validate(project_path: Optional[str]):
     """
     Validate project structure and configuration.
-    
+
     EXAMPLES:
-    
+
         \b
         # Validate current directory
         ai-agent-builder validate
-        
+
         \b
         # Validate specific project
         ai-agent-builder validate projects/05_my_project
@@ -323,18 +322,18 @@ def validate(project_path: Optional[str]):
         project_path = Path.cwd()
     else:
         project_path = Path(project_path)
-    
+
     click.echo(click.style(f"\n🔍 Validating project: {project_path.name}", fg="cyan", bold=True))
     click.echo()
-    
+
     issues = []
-    
+
     # Check directory structure
     required_dirs = ["src", "tests"]
     for dir_name in required_dirs:
         if not (project_path / dir_name).exists():
             issues.append(f"Missing directory: {dir_name}/")
-    
+
     # Check required files
     required_files = [
         "src/main.py",
@@ -346,12 +345,12 @@ def validate(project_path: Optional[str]):
     for file_path in required_files:
         if not (project_path / file_path).exists():
             issues.append(f"Missing file: {file_path}")
-    
+
     # Check .env file
     env_file = project_path / ".env"
     if not env_file.exists():
         issues.append("Missing .env file (copy from .env.example)")
-    
+
     # Report results
     if issues:
         click.echo(click.style("⚠️  Issues found:", fg="yellow"))
@@ -370,17 +369,17 @@ def validate(project_path: Optional[str]):
 def test(project_path: Optional[str], coverage: bool, verbose: bool):
     """
     Run project tests.
-    
+
     EXAMPLES:
-    
+
         \b
         # Run tests in current directory
         ai-agent-builder test
-        
+
         \b
         # Run with coverage
         ai-agent-builder test --coverage
-        
+
         \b
         # Run specific project tests
         ai-agent-builder test projects/05_my_project --coverage -v
@@ -389,28 +388,28 @@ def test(project_path: Optional[str], coverage: bool, verbose: bool):
         project_path = Path.cwd()
     else:
         project_path = Path(project_path)
-    
+
     click.echo(click.style(f"\n🧪 Running tests: {project_path.name}", fg="cyan", bold=True))
     click.echo()
-    
+
     # Build pytest command
     pytest_cmd = ["pytest"]
-    
+
     if coverage:
         pytest_cmd.extend(["--cov", "--cov-report=term-missing", "--cov-fail-under=90"])
-    
+
     if verbose:
         pytest_cmd.append("-v")
-    
+
     # Change to project directory and run
     import subprocess
-    
+
     result = subprocess.run(
         pytest_cmd,
         cwd=project_path,
         capture_output=False
     )
-    
+
     sys.exit(result.returncode)
 
 
