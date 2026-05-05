@@ -23,18 +23,16 @@ cp .env.example .env
 # Fill in OLLAMA_BASE_URL and OLLAMA_API_KEY
 ```
 
-**2. Set up the virtual environment:**
+**2. Set up and activate the virtual environment:**
 
 If you scaffolded this project with `ai-agent-builder`, the `.venv` was created automatically with all dependencies installed. If not, create it manually:
 
 ```powershell
 # From the repo root
 uv venv projects/01_hello_langchain/.venv
-uv pip install -e ./common --python projects/01_hello_langchain/.venv
-uv pip install -r requirements-base.txt --python projects/01_hello_langchain/.venv
 ```
 
-**3. Activate the virtual environment:**
+Then activate it before installing dependencies:
 
 _Windows (PowerShell):_
 ```powershell
@@ -46,6 +44,14 @@ _macOS / Linux:_
 ```bash
 cd projects/01_hello_langchain
 source .venv/bin/activate
+```
+
+**3. Install dependencies:**
+
+```powershell
+# From the repo root (with venv activated)
+uv pip install -e ./common
+uv pip install -r requirements-base.txt
 ```
 
 **4. Run:**
