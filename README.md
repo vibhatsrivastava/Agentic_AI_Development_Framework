@@ -22,7 +22,7 @@ A curated **monorepo** of Agentic AI applications built with [LangChain](https:/
 | **Default Model** | `gpt-oss:20b` (20B parameter OSS model) |
 | **Embeddings** | `nomic-embed-text` via Ollama |
 | **Secret Management** | [HashiCorp Vault](https://www.vaultproject.io/) (optional) |
-| **Testing** | pytest with 90% coverage requirement |
+| **Testing** | pytest with 75% coverage requirement |
 
 ### ⚡ Key Features
 
