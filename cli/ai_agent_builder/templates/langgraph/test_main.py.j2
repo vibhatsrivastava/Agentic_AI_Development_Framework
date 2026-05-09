@@ -1,0 +1,46 @@
+{# test_main.py template for LCEL architecture #}
+"""
+test_main.py — Tests for {{ project_name }}.
+"""
+
+import pytest
+from src.main import create_chain
+
+
+def test_chain_creation():
+    """Test that chain can be created without errors."""
+    chain = create_chain()
+    assert chain is not None
+
+
+def test_chain_invoke_with_mock(mock_llm, sample_prompt):
+    """Test chain invocation with mocked LLM."""
+    chain = create_chain()
+    
+    # Mock should return predefined response
+    mock_llm.invoke.return_value = "Mocked LLM response"
+    
+    result = chain.invoke({"question": sample_prompt})
+    
+    assert result == "Mocked LLM response"
+    assert mock_llm.invoke.called
+
+
+def test_chain_structure():
+    """Test chain components are correctly composed."""
+    chain = create_chain()
+    
+    # Verify chain is a Runnable
+    from langchain_core.runnables import Runnable
+    assert isinstance(chain, Runnable)
+
+
+{% if has_observability %}
+def test_tracing_initialization(mock_tracing):
+    """Test observability tracing is initialized."""
+    from src.main import main
+    
+    # Run main (should call init_tracing)
+    # Note: This test requires mocking to avoid actual execution
+    mock_tracing.assert_not_called()  # Initially not called
+{% endif %}

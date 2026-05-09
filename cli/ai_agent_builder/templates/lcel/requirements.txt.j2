@@ -1,0 +1,12 @@
+{# requirements.txt template for generated projects #}
+# Project-specific dependencies for {{ project_name }}
+# Base dependencies are inherited from requirements-base.txt at repo root
+
+{% if integrations %}
+# Integration-specific dependencies
+{% for integration in integrations %}
+# {{ integration }}
+{% endfor %}
+{% endif %}
+
+# Add your project-specific packages below

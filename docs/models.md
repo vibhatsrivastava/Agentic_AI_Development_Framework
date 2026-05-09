@@ -98,3 +98,116 @@ ollama pull <model-name>
 ```
 
 and then used by setting `OLLAMA_MODEL=<model-name>` in your `.env`.
+
+---
+
+## LLM Classes — Choosing the Right Builder
+
+The `common/llm_factory.py` module exposes **three builder functions**, each wrapping a different Ollama class. Pick the one that matches your use case:
+
+| Builder | Returns | Use When |
+|---|---|---|
+| `get_llm()` | `OllamaLLM` | Simple string chains, no message history |
+| `get_chat_llm()` | `ChatOllama` | Agents, memory, tool-calling, JSON mode |
+| `get_embeddings()` | `OllamaEmbeddings` | RAG, vector stores, similarity search |
+
+All three builders read the same `.env` configuration — no new environment variables are needed. The `model` argument overrides the env default for that specific instance only.
+
+---
+
+### `get_llm()` → `OllamaLLM`
+
+Raw string-in, string-out completion. Best for simple, single-turn prompt chains.
+
+```python
+from common.llm_factory import get_llm
+from langchain_core.prompts import PromptTemplate
+
+llm = get_llm()                                     # default model, deterministic
+llm = get_llm(model="mistral:7b", temperature=0.3)  # override model + temperature
+
+# Use in a simple chain
+prompt = PromptTemplate.from_template("Translate to French: {text}")
+chain = prompt | llm
+result = chain.invoke({"text": "Hello, world!"})
+print(result)   # returns a plain string
+```
+
+---
+
+### `get_chat_llm()` → `ChatOllama`
+
+Chat-style model using `HumanMessage` / `AIMessage` / `SystemMessage` roles. Required for multi-turn conversations, LangGraph agents, tool calling, and structured JSON output.
+
+**Basic invocation:**
+```python
+from common.llm_factory import get_chat_llm
+from langchain_core.messages import HumanMessage, SystemMessage
+
+chat = get_chat_llm()
+chat = get_chat_llm(model="llama3.1:8b", temperature=0.5)
+
+response = chat.invoke([
+    SystemMessage(content="You are a helpful assistant."),
+    HumanMessage(content="What is LangChain?"),
+])
+print(response.content)   # returns an AIMessage; .content holds the string
+```
+
+**In a chain with `ChatPromptTemplate`:**
+```python
+from common.llm_factory import get_chat_llm
+from langchain_core.prompts import ChatPromptTemplate
+
+chat = get_chat_llm()
+prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are a concise assistant."),
+    ("human", "{question}"),
+])
+chain = prompt | chat
+result = chain.invoke({"question": "Explain RAG in one sentence."})
+print(result.content)
+```
+
+**JSON output mode:**
+```python
+import json
+from common.llm_factory import get_chat_llm
+from langchain_core.messages import HumanMessage
+
+json_chat = get_chat_llm(format="json")
+response = json_chat.invoke([
+    HumanMessage(content='Return a JSON object with keys "name" and "version" for LangChain.')
+])
+data = json.loads(response.content)
+print(data)
+```
+
+**Extended context window:**
+```python
+from common.llm_factory import get_chat_llm
+
+chat = get_chat_llm(model="llama3.1:8b", num_ctx=8192)  # 8k token context
+```
+
+---
+
+### `get_embeddings()` → `OllamaEmbeddings`
+
+Vector embeddings for semantic search and RAG pipelines.
+
+```python
+from common.llm_factory import get_embeddings
+
+embeddings = get_embeddings()                           # default nomic-embed-text
+embeddings = get_embeddings(model="mxbai-embed-large")  # override model
+
+# Embed a list of documents
+vectors = embeddings.embed_documents([
+    "LangChain is a framework for building LLM applications.",
+    "Ollama runs large language models locally.",
+])
+
+# Embed a single query string
+query_vector = embeddings.embed_query("What is LangChain?")
+```

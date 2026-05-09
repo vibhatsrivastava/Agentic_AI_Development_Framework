@@ -1,0 +1,145 @@
+{# Langfuse tracing implementation #}
+"""
+tracing.py — Langfuse observability and tracing implementation.
+
+Provides LLM request tracing, cost tracking, and performance analytics.
+"""
+
+import os
+import sys
+from typing import Optional
+
+# Add repo root to path for imports
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
+
+from langfuse import Langfuse
+from langfuse.callback import CallbackHandler
+from common.utils import get_logger, require_env
+
+logger = get_logger(__name__)
+
+
+class LangfuseTracing:
+    """
+    Langfuse tracing manager.
+    
+    Provides centralized tracing configuration for LangChain.
+    """
+    
+    def __init__(self):
+        """Initialize Langfuse client from environment."""
+        self.public_key = require_env("LANGFUSE_PUBLIC_KEY")
+        self.secret_key = require_env("LANGFUSE_SECRET_KEY")
+        self.host = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")
+        
+        # Initialize Langfuse client
+        self.client = Langfuse(
+            public_key=self.public_key,
+            secret_key=self.secret_key,
+            host=self.host,
+        )
+        
+        logger.info(f"Initialized Langfuse tracing (host: {self.host})")
+    
+    def get_callback_handler(
+        self,
+        session_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        tags: Optional[list] = None
+    ) -> CallbackHandler:
+        """
+        Get Langfuse callback handler for LangChain.
+        
+        Args:
+            session_id: Optional session ID for grouping traces
+            user_id: Optional user ID for user analytics
+            tags: Optional tags for filtering traces
+        
+        Returns:
+            CallbackHandler for use with LangChain chains
+        
+        Example:
+            handler = tracing.get_callback_handler(session_id="session123")
+            result = chain.invoke({"input": "..."}, config={"callbacks": [handler]})
+        """
+        handler = CallbackHandler(
+            public_key=self.public_key,
+            secret_key=self.secret_key,
+            host=self.host,
+            session_id=session_id,
+            user_id=user_id,
+            tags=tags,
+        )
+        
+        return handler
+    
+    def trace(self, name: str):
+        """
+        Create a new trace.
+        
+        Args:
+            name: Trace name
+        
+        Returns:
+            Langfuse trace object (context manager)
+        
+        Example:
+            with tracing.trace("my_operation"):
+                # Your code here
+                pass
+        """
+        return self.client.trace(name=name)
+    
+    def flush(self):
+        """Flush pending traces to Langfuse server."""
+        self.client.flush()
+        logger.debug("Flushed Langfuse traces")
+
+
+# Global instance
+_langfuse_tracing: Optional[LangfuseTracing] = None
+
+
+def init_tracing() -> LangfuseTracing:
+    """
+    Initialize Langfuse tracing (creates global instance).
+    
+    Returns:
+        LangfuseTracing instance
+    """
+    global _langfuse_tracing
+    
+    if _langfuse_tracing is None:
+        _langfuse_tracing = LangfuseTracing()
+    
+    return _langfuse_tracing
+
+
+def get_tracing() -> LangfuseTracing:
+    """
+    Get Langfuse tracing instance.
+    
+    Returns:
+        LangfuseTracing instance
+    
+    Raises:
+        RuntimeError: If tracing not initialized
+    """
+    if _langfuse_tracing is None:
+        raise RuntimeError("Langfuse tracing not initialized. Call init_tracing() first.")
+    
+    return _langfuse_tracing
+
+
+def get_callback_handler(**kwargs) -> CallbackHandler:
+    """
+    Get Langfuse callback handler (convenience function).
+    
+    Args:
+        **kwargs: Arguments for CallbackHandler (session_id, user_id, tags)
+    
+    Returns:
+        CallbackHandler for LangChain
+    """
+    tracing = get_tracing()
+    return tracing.get_callback_handler(**kwargs)

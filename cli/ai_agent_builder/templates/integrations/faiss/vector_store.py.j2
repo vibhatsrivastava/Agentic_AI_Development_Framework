@@ -1,0 +1,136 @@
+{# FAISS vector store implementation #}
+"""
+vector_store.py — FAISS vector store implementation.
+
+High-performance local vector search using Facebook AI Similarity Search.
+"""
+
+import os
+import sys
+from typing import List, Optional
+from pathlib import Path
+
+# Add repo root to path for imports
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
+
+import faiss
+from langchain_community.vectorstores import FAISS
+from langchain_community.docstore.in_memory import InMemoryDocstore
+from langchain_core.documents import Document
+from common.llm_factory import get_embeddings
+from common.utils import get_logger
+
+logger = get_logger(__name__)
+
+
+class FAISSVectorStore:
+    """
+    FAISS vector store wrapper.
+    
+    Provides high-level interface for high-performance local vector search.
+    """
+    
+    def __init__(self, index_path: Optional[str] = None):
+        """
+        Initialize FAISS store.
+        
+        Args:
+            index_path: Path to save/load FAISS index (default: ./faiss_index)
+        """
+        self.index_path = index_path or os.getenv("FAISS_INDEX_PATH", "./faiss_index")
+        self.index_name = os.getenv("FAISS_INDEX_NAME", "langchain_index")
+        
+        # Create index directory if it doesn't exist
+        Path(self.index_path).mkdir(parents=True, exist_ok=True)
+        
+        self.embeddings = get_embeddings()
+        self.index_file = os.path.join(self.index_path, f"{self.index_name}.faiss")
+        
+        # Load existing index or create new one
+        if os.path.exists(self.index_file):
+            logger.info(f"Loading existing FAISS index from {self.index_file}")
+            self.store = FAISS.load_local(
+                self.index_path,
+                self.embeddings,
+                self.index_name,
+                allow_dangerous_deserialization=True
+            )
+        else:
+            logger.info(f"Creating new FAISS index at {self.index_file}")
+            # Create empty FAISS index
+            self.store = None  # Will be created on first add_documents
+        
+        logger.info(f"Initialized FAISS at {self.index_path}")
+    
+    def add_documents(self, documents: List[Document]) -> List[str]:
+        """
+        Add documents to vector store.
+        
+        Args:
+            documents: List of LangChain Document objects
+        
+        Returns:
+            List of document IDs
+        """
+        logger.info(f"Adding {len(documents)} documents to FAISS")
+        
+        if self.store is None:
+            # Create new FAISS store from documents
+            self.store = FAISS.from_documents(documents, self.embeddings)
+        else:
+            # Add to existing store
+            self.store.add_documents(documents)
+        
+        # Save index
+        self.save()
+        
+        logger.info(f"Successfully added {len(documents)} documents")
+        return [str(i) for i in range(len(documents))]
+    
+    def similarity_search(
+        self,
+        query: str,
+        k: int = 4,
+        filter: Optional[dict] = None
+    ) -> List[Document]:
+        """
+        Search for similar documents.
+        
+        Args:
+            query: Search query
+            k: Number of results to return
+            filter: Optional metadata filter (limited support in FAISS)
+        
+        Returns:
+            List of similar documents
+        """
+        if self.store is None:
+            logger.warning("FAISS index is empty, no documents to search")
+            return []
+        
+        logger.info(f"Searching FAISS for '{query}' (k={k})")
+        results = self.store.similarity_search(query, k=k, filter=filter)
+        logger.info(f"Found {len(results)} similar documents")
+        return results
+    
+    def save(self):
+        """Save FAISS index to disk."""
+        if self.store is not None:
+            self.store.save_local(self.index_path, self.index_name)
+            logger.info(f"Saved FAISS index to {self.index_file}")
+    
+    def delete_index(self):
+        """Delete the FAISS index file."""
+        if os.path.exists(self.index_file):
+            os.remove(self.index_file)
+            logger.warning(f"Deleted FAISS index: {self.index_file}")
+
+
+def get_vector_store() -> FAISSVectorStore:
+    """
+    Get or create FAISS vector store.
+    
+    Returns:
+        FAISSVectorStore instance
+    """
+    return FAISSVectorStore()

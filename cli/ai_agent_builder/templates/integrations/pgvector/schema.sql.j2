@@ -1,0 +1,27 @@
+{# pgvector schema SQL #}
+-- PostgreSQL schema for pgvector vector store
+-- Run this after installing pgvector extension
+
+-- Enable pgvector extension
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- Create vector embeddings table
+CREATE TABLE IF NOT EXISTS langchain_vectors (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    content TEXT NOT NULL,
+    metadata JSONB,
+    embedding VECTOR({{ "{{" }} VECTOR_DIMENSION | default(1536) {{ "}}" }}),  -- nomic-embed-text dimension
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create index for vector similarity search (using HNSW for performance)
+CREATE INDEX IF NOT EXISTS langchain_vectors_embedding_idx 
+ON langchain_vectors USING hnsw (embedding vector_cosine_ops);
+
+-- Create index for metadata queries
+CREATE INDEX IF NOT EXISTS langchain_vectors_metadata_idx 
+ON langchain_vectors USING gin (metadata);
+
+-- Create index for full-text search on content
+CREATE INDEX IF NOT EXISTS langchain_vectors_content_idx 
+ON langchain_vectors USING gin (to_tsvector('english', content));

@@ -1,0 +1,4 @@
+# Project-specific dependencies for 03_weather_reporting_agent
+# Base dependencies are inherited from requirements-base.txt at repo root
+
+requests>=2.32.0

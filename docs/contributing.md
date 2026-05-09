@@ -34,9 +34,10 @@ projects/NN_project_name/
 ├── src/
 │   └── main.py              # Entry point
 ├── requirements.txt         # Project-specific deps (delta on top of requirements-base.txt)
-├── .env.example             # Any project-specific env vars (can be empty if none)
 └── README.md                # Project documentation (see template below)
 ```
+
+**Important**: Do NOT create project-level `.env` or `.env.example` files. All environment variables must be defined in the root-level `.env.example` and documented in the project's README if they're project-specific.
 
 ---
 
@@ -96,14 +97,32 @@ from common.utils import get_logger
 
 ---
 
-## Project `.env.example` Convention
+## Environment Variable Convention
 
-The project `.env.example` should only include variables **specific to that project**. Shared variables (`OLLAMA_BASE_URL`, `OLLAMA_API_KEY`, etc.) are already in the root `.env.example`.
+**All environment variables must be defined in the root `.env.example` file.** Do not create project-level `.env` or `.env.example` files.
+
+If your project requires project-specific environment variables:
+
+1. Add them to the root [`.env.example`](../.env.example) with clear comments indicating which project uses them
+2. Document them in your project's `README.md` under an "Environment Variables" section
+
+```markdown
+## Environment Variables
+
+This project uses the following variables from the root `.env` file:
+
+- `OLLAMA_BASE_URL` — Ollama server endpoint (required)
+- `OLLAMA_MODEL` — Default LLM model (required)
+- `PDF_SOURCE_PATH` — Path to PDF file for ingestion (optional, defaults to `data/sample.pdf`)
+
+See [.env.example](../../.env.example) for configuration details.
+```
+
+Example root `.env.example` entry:
 
 ```dotenv
-# projects/02_rag_with_pdf/.env.example
-
-# PDF source path or URL specific to this project
+# ─── Project-Specific Variables ─────────────────────────────
+# PDF source path for 02_rag_with_pdf project
 PDF_SOURCE_PATH=data/sample.pdf
 ```
 

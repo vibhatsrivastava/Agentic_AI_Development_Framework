@@ -1,0 +1,6 @@
+# Project-specific dependencies for 04_github_issue_reporter
+# Base dependencies are inherited from requirements-base.txt at repo root
+
+
+# Add your project-specific packages below
+requests>=2.31.0

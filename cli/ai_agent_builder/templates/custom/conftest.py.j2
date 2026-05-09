@@ -1,0 +1,74 @@
+{# conftest.py template — pytest fixtures for all architectures #}
+"""
+conftest.py — pytest fixtures for {{ project_name }}.
+"""
+
+import sys
+import os
+import pytest
+from unittest.mock import Mock
+
+# Add project root to sys.path to enable "from src.main import ..." imports
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+@pytest.fixture
+def mock_llm(mocker):
+    """Mock OllamaLLM for testing (no real API calls)."""
+    mock = Mock()
+    mock.invoke.return_value = "Mocked LLM response"
+    mocker.patch("common.llm_factory.get_llm", return_value=mock)
+    return mock
+
+
+@pytest.fixture
+def mock_chat_llm(mocker):
+    """Mock ChatOllama for testing (no real API calls)."""
+    mock = Mock()
+    mock.invoke.return_value = {"content": "Mocked chat response"}
+    mocker.patch("common.llm_factory.get_chat_llm", return_value=mock)
+    return mock
+
+
+@pytest.fixture
+def sample_prompt():
+    """Sample prompt for testing."""
+    return "What is artificial intelligence?"
+
+
+@pytest.fixture
+def expected_response_keywords():
+    """Keywords expected in LLM response (for validation)."""
+    return ["AI", "intelligence", "artificial", "machine", "learning"]
+
+{% if has_vector_store %}
+
+@pytest.fixture
+def mock_vector_store(mocker):
+    """Mock vector store for testing."""
+    mock = Mock()
+    mock.similarity_search.return_value = [
+        Mock(page_content="Sample document 1"),
+        Mock(page_content="Sample document 2"),
+    ]
+    return mock
+{% endif %}
+{% if has_cache %}
+
+@pytest.fixture
+def mock_redis(mocker):
+    """Mock Redis connection for testing."""
+    mock = Mock()
+    mock.get.return_value = None
+    mock.set.return_value = True
+    mocker.patch("redis.Redis", return_value=mock)
+    return mock
+{% endif %}
+{% if has_observability %}
+
+@pytest.fixture
+def mock_tracing(mocker):
+    """Mock observability tracing for testing."""
+    mocker.patch("common.integrations.observability.init_tracing")
+{% endif %}

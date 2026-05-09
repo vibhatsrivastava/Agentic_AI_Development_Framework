@@ -1,0 +1,132 @@
+{# README.md template for generated projects #}
+# {{ project_name }} — {{ project_description }}
+
+{{ architecture_name }} implementation using LangChain{% if has_integrations %} with the following integrations:{% endif %}
+
+{% if has_integrations %}
+**Integrations:**
+{% for integration in integrations %}
+- {{ integration }}
+{% endfor %}
+{% endif %}
+
+---
+
+## Overview
+
+This project was scaffolded using `ai-agent-builder` CLI tool.
+
+**Architecture:** {{ architecture }}
+**Project Number:** {{ project_number }}
+
+---
+
+## Setup
+
+### 1. Environment Variables
+
+All variables are loaded from the **repo-root `.env`** automatically — do **not** create a project-level `.env` file.
+
+Ensure these are set in `<repo-root>/.env`:
+- `OLLAMA_BASE_URL` — Ollama server URL
+- `OLLAMA_MODEL` — Default LLM model
+{% if has_vector_store %}
+- Vector store connection variables (see `.env.example` for the full list)
+{% endif %}
+{% if has_cache %}
+- Redis connection variables (see `.env.example` for the full list)
+{% endif %}
+{% if has_observability %}
+- Observability API keys (see `.env.example` for the full list)
+{% endif %}
+
+### 2. Install Dependencies
+
+```powershell
+# Activate shared virtual environment
+.venv\Scripts\Activate.ps1
+
+# Install project-specific dependencies
+pip install -r requirements.txt
+```
+
+{% if has_integrations %}
+### 3. Integration Setup
+
+{% for integration in integrations %}
+#### {{ integration }}
+
+See integration-specific setup instructions in `.env.example` and below.
+
+{% endfor %}
+{% endif %}
+
+---
+
+## Usage
+
+### Run the Project
+
+```powershell
+python src/main.py
+```
+
+### Run Tests
+
+```powershell
+# Run all tests with coverage
+pytest --cov --cov-report=term-missing
+
+# Run specific test file
+pytest tests/test_main.py -v
+```
+
+---
+
+## Project Structure
+
+```
+{{ project_name }}/
+├── src/
+│   └── main.py           # Main entry point
+├── tests/
+│   ├── conftest.py       # pytest fixtures
+│   └── test_main.py      # Unit tests
+├── requirements.txt      # Project-specific dependencies
+{% if has_integrations %}
+├── .env.example          # Integration-specific variable reference (add to root .env)
+{% endif %}
+└── README.md             # This file
+```
+
+---
+
+## Development
+
+### Testing Requirements
+
+- Minimum 90% test coverage
+- All LLM calls must be mocked in tests
+- Run `pytest --cov --cov-fail-under=90` before committing
+
+### Code Quality
+
+- Follow repository conventions (see `docs/contributing.md`)
+- Use `common/` package for LLM initialization, logging, utilities
+- Always use LCEL for chain composition
+- No project-level `.env` files (use root `.env`)
+
+---
+
+## Resources
+
+- [Repository Docs](../../docs/getting_started.md)
+- [LangChain Documentation](https://docs.langchain.com/)
+- [LangGraph Documentation](https://langchain-ai.github.io/langgraph/)
+- [Ollama Documentation](https://ollama.com/)
+
+---
+
+## License
+
+See repository LICENSE file.

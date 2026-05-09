@@ -17,8 +17,8 @@ This is the standard setup when using the shared `gpt-oss:20b` model on a hosted
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/vibhatsrivastava/Langchain_Development_Projects.git
-cd Langchain_Development_Projects
+git clone https://github.com/vibhatsrivastava/Agentic_AI_Development_Framework.git
+cd Agentic_AI_Development_Framework
 ```
 
 ### 2. Configure Environment Variables
@@ -40,43 +40,46 @@ OLLAMA_EMBEDDING_MODEL=nomic-embed-text
 
 ### 3. Create and Activate a Virtual Environment
 
-Creating a virtual environment prevents dependency conflicts between projects and keeps your global Python installation clean.
+> Install `uv` first if you haven't: see [prerequisites.md](prerequisites.md#5-uv-package-manager).
 
-```bash
+```powershell
 # From the repo root
-python -m venv venv
+uv venv .venv
 ```
 
 Activate it before installing anything or running any script:
 
 **Windows (PowerShell):**
 ```powershell
-venv\Scripts\Activate.ps1
+.venv\Scripts\Activate.ps1
 ```
 
 **Windows (Command Prompt):**
 ```cmd
-venv\Scripts\activate.bat
+.venv\Scripts\activate.bat
 ```
 
 **macOS / Linux:**
 ```bash
-source venv/bin/activate
+source .venv/bin/activate
 ```
 
-Your prompt will show `(venv)` when the environment is active. See [prerequisites.md](prerequisites.md) for more details.
+Your prompt will show `(.venv)` when the environment is active. See [prerequisites.md](prerequisites.md) for more details.
 
 ### 4. Install Base Dependencies
 
-```bash
-pip install -r requirements-base.txt
+```powershell
+# Test tooling (pytest, etc.)
+uv pip install -r requirements-base.txt
+
+# Runtime dependencies: langchain, langgraph, langchain-ollama, etc.
+uv pip install -e ./common
 ```
 
 ### 5. Run a Project
 
-```bash
+```powershell
 cd projects/01_hello_langchain
-pip install -r requirements.txt      # project-specific deps, if any
 python src/main.py
 ```
 
@@ -139,32 +142,37 @@ ollama pull nomic-embed-text           # required for RAG/embedding projects
 
 ### 5. Create and Activate a Virtual Environment
 
-```bash
+```powershell
 # From the repo root
-python -m venv venv
+uv venv .venv
 ```
 
 Activate before installing packages or running scripts:
 
 **Windows (PowerShell):**
 ```powershell
-venv\Scripts\Activate.ps1
+.venv\Scripts\Activate.ps1
 ```
 
 **Windows (Command Prompt):**
 ```cmd
-venv\Scripts\activate.bat
+.venv\Scripts\activate.bat
 ```
 
 **macOS / Linux:**
 ```bash
-source venv/bin/activate
+source .venv/bin/activate
 ```
 
 ### 6. Install & Run
 
-```bash
-pip install -r requirements-base.txt
+```powershell
+# Test tooling
+uv pip install -r requirements-base.txt
+
+# Runtime dependencies: langchain, langgraph, langchain-ollama, etc.
+uv pip install -e ./common
+
 cd projects/01_hello_langchain
 python src/main.py
 ```
@@ -173,12 +181,10 @@ python src/main.py
 
 ## Shared `common/` Library
 
-All projects can import from the `common/` package:
+All projects import from the `common/` package directly. The `common/` package is installed as an editable package (`ai-agent-common`) into each project's `.venv` by the CLI scaffold — no `sys.path` manipulation needed:
 
 ```python
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
-
+# Direct import — works because ai-agent-common is installed in the project venv
 from common.llm_factory import get_llm, get_embeddings
 from common.utils import get_logger
 
@@ -189,13 +195,58 @@ llm = get_llm(model="gpt-oss:20b")      # override per-call
 
 ---
 
-## Per-Project Environment Overrides
+## Optional: HashiCorp Vault Integration
 
-Each project may have its own `.env.example` for project-specific variables. When present, merge it with the root `.env`:
+For teams with multiple developers, you can use **HashiCorp Vault** to centrally manage API keys instead of distributing them via `.env` files.
 
-```bash
-# From inside a project directory
-cat ../../.env.example > .env
-cat .env.example >> .env
-# Then edit .env with your values
-```
+### Why Use Vault?
+
+- **Centralized secrets**: Store `OLLAMA_API_KEY` once in Vault, accessible to all developers on the network
+- **Automatic fallback**: If Vault is unreachable (offline, network issues), applications use `.env` as fallback
+- **Zero code changes**: Projects continue using `get_llm()` — credential retrieval is transparent
+- **Backward compatible**: Vault is disabled by default; existing workflows unchanged
+
+### Quick Setup
+
+1. **Ask your team lead for Vault credentials:**
+   - Vault server URL
+   - Vault authentication token
+
+2. **Enable Vault in your `.env`:**
+   ```env
+   VAULT_ENABLED=true
+   VAULT_ADDR=http://vault.example.com:8200
+   VAULT_TOKEN=hvs.your_vault_token_here
+   ```
+
+3. **Run your project** — API keys are automatically retrieved from Vault:
+   ```powershell
+   python projects/01_hello_langchain/src/main.py
+   ```
+
+4. **Verify in logs:**
+   ```
+   INFO | common.vault | Retrieved 'OLLAMA_API_KEY' from Vault (path: secret/ollama)
+   ```
+
+### Full Documentation
+
+For complete setup instructions, troubleshooting, and security best practices, see:
+
+**[docs/vault.md](vault.md)** — Comprehensive HashiCorp Vault integration guide
+
+Topics covered:
+- Setting up a local Vault dev server
+- Configuring a production Vault instance
+- Storing and rotating secrets
+- Testing Vault connectivity
+- Troubleshooting common issues
+- Advanced authentication methods (AppRole, etc.)
+
+---
+
+## Environment Variable Management
+
+**All environment variables are configured in the root `.env` file.** The `load_dotenv()` function automatically searches upward from the `common/` directory and finds the root `.env` file, making it available to all projects.
+
+Project-specific variables (if any) are documented in the project's `README.md` and added to the root `.env.example` with clear comments indicating which project uses them.

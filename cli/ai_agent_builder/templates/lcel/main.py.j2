@@ -1,0 +1,67 @@
+{# Main.py template for LCEL architecture #}
+"""
+main.py — {{ project_description }}
+
+{{ architecture_name }} implementation using LangChain Expression Language.
+"""
+
+from langchain_core.prompts import PromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from common.llm_factory import get_llm
+from common.utils import get_logger
+{% if has_observability %}
+from common.integrations.observability import init_tracing
+{% endif %}
+
+logger = get_logger(__name__)
+
+
+def create_chain():
+    """
+    Create LCEL chain.
+    
+    Returns:
+        Runnable chain (prompt | llm | parser)
+    """
+    # Define prompt template
+    prompt = PromptTemplate.from_template(
+        "Answer the following question concisely:\n\nQuestion: {question}\nAnswer:"
+    )
+    
+    # Get LLM from factory
+    llm = get_llm()
+    
+    # Output parser
+    parser = StrOutputParser()
+    
+    # Compose chain using LCEL
+    chain = prompt | llm | parser
+    
+    return chain
+
+
+def main():
+    """Main entry point."""
+    logger.info("Starting {{ project_name }}...")
+    
+    {% if has_observability %}
+    # Initialize tracing for observability
+    init_tracing()
+    {% endif %}
+    
+    # Create chain
+    chain = create_chain()
+    
+    # Example invocation
+    question = "What is LangChain?"
+    logger.info(f"Question: {question}")
+    
+    result = chain.invoke({"question": question})
+    logger.info(f"Answer: {result}")
+    
+    print(f"\nQuestion: {question}")
+    print(f"Answer: {result}")
+
+
+if __name__ == "__main__":
+    main()

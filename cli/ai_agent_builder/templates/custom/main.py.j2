@@ -1,0 +1,40 @@
+{# Main.py template for custom/minimal architecture #}
+"""
+main.py — {{ project_description }}
+
+Custom implementation with minimal scaffolding.
+"""
+
+from common.llm_factory import get_llm, get_chat_llm
+from common.utils import get_logger
+{% if has_observability %}
+from common.integrations.observability import init_tracing
+{% endif %}
+
+logger = get_logger(__name__)
+
+
+def main():
+    """Main entry point."""
+    logger.info("Starting {{ project_name }}...")
+    
+    {% if has_observability %}
+    # Initialize tracing for observability
+    init_tracing()
+    {% endif %}
+    
+    # Your implementation goes here
+    llm = get_llm()
+    
+    prompt = "What is artificial intelligence?"
+    logger.info(f"Prompt: {prompt}")
+    
+    response = llm.invoke(prompt)
+    logger.info(f"Response: {response}")
+    
+    print(f"\nPrompt: {prompt}")
+    print(f"Response: {response}")
+
+
+if __name__ == "__main__":
+    main()

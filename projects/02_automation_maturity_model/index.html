@@ -1,0 +1,888 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=1920" />
+  <title>Automation Maturity Model through Agentic AI</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800;900&display=swap');
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --muted: #8b949e;
+
+      --c1: #ef4444;   /* Level 1 – Manual */
+      --c2: #f97316;   /* Level 2 – Scripted */
+      --c3: #eab308;   /* Level 3 – Orchestrated */
+      --c4: #22c55e;   /* Level 4 – Intelligent */
+      --c5: #6366f1;   /* Level 5 – Agentic */
+
+      --step-w: 300px;
+      --gap: 20px;
+    }
+
+    html, body {
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      background: var(--bg);
+      font-family: 'Inter', system-ui, sans-serif;
+      color: var(--text);
+    }
+
+    /* ──────────────────────────────────────────────
+       BACKGROUND GRID
+    ────────────────────────────────────────────── */
+    .bg-grid {
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(99,102,241,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(99,102,241,0.04) 1px, transparent 1px);
+      background-size: 60px 60px;
+      pointer-events: none;
+    }
+
+    .bg-glow {
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse 1200px 600px at 50% 110%, rgba(99,102,241,0.12) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    /* ──────────────────────────────────────────────
+       HEADER
+    ────────────────────────────────────────────── */
+    .header {
+      position: absolute;
+      top: 40px;
+      left: 0; right: 0;
+      text-align: center;
+      opacity: 0;
+      animation: fadeInDown 0.8s ease forwards;
+      animation-delay: 0.1s;
+    }
+
+    .header .eyebrow {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--c5);
+      opacity: 0;
+      animation: fadeIn 0.6s ease forwards;
+      animation-delay: 0.2s;
+    }
+
+    .header h1 {
+      font-size: 52px;
+      font-weight: 900;
+      letter-spacing: -1.5px;
+      background: linear-gradient(135deg, #e6edf3 30%, var(--c5) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-top: 6px;
+    }
+
+    .header .subtitle {
+      font-size: 20px;
+      font-weight: 400;
+      color: var(--muted);
+      margin-top: 8px;
+      opacity: 0;
+      animation: fadeIn 0.8s ease forwards;
+      animation-delay: 0.8s;
+    }
+
+    /* ──────────────────────────────────────────────
+       MAIN STAGE
+    ────────────────────────────────────────────── */
+    .stage {
+      position: absolute;
+      bottom: 110px;
+      left: 0; right: 0;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      gap: var(--gap);
+      padding: 0 80px;
+    }
+
+    /* ──────────────────────────────────────────────
+       STEPS
+    ────────────────────────────────────────────── */
+    .step {
+      flex: 1;
+      max-width: 330px;
+      border-radius: 16px 16px 0 0;
+      position: relative;
+      overflow: hidden;
+      opacity: 0;
+      transform: translateY(120px);
+      transition: box-shadow 0.3s ease;
+    }
+
+    .step.visible { animation: slideUp 0.7s cubic-bezier(0.34,1.2,0.64,1) forwards; }
+
+    .step:hover {
+      box-shadow: 0 0 40px var(--step-color), 0 0 80px rgba(0,0,0,0.6);
+      z-index: 10;
+    }
+
+    /* Per-level colors */
+    .step[data-level="1"] { --step-color: var(--c1); height: 340px; }
+    .step[data-level="2"] { --step-color: var(--c2); height: 430px; }
+    .step[data-level="3"] { --step-color: var(--c3); height: 520px; }
+    .step[data-level="4"] { --step-color: var(--c4); height: 610px; }
+    .step[data-level="5"] { --step-color: var(--c5); height: 700px; }
+
+    .step-bg {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(170deg, rgba(255,255,255,0.06) 0%, transparent 60%);
+    }
+
+    .step-border {
+      position: absolute;
+      inset: 0;
+      border-radius: 16px 16px 0 0;
+      border: 1px solid var(--step-color);
+      border-bottom: none;
+      opacity: 0.4;
+      pointer-events: none;
+    }
+
+    .step-top-line {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: var(--step-color);
+      box-shadow: 0 0 12px var(--step-color);
+    }
+
+    .step-fill {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, color-mix(in srgb, var(--step-color) 18%, transparent) 0%, color-mix(in srgb, var(--step-color) 6%, var(--surface)) 100%);
+    }
+
+    .step-content {
+      position: relative;
+      z-index: 1;
+      padding: 24px 20px 20px;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+
+    .level-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--step-color);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      padding: 4px 10px;
+      border-radius: 20px;
+      width: fit-content;
+      margin-bottom: 14px;
+    }
+
+    .step-icon {
+      font-size: 36px;
+      margin-bottom: 10px;
+      line-height: 1;
+    }
+
+    .step-name {
+      font-size: 18px;
+      font-weight: 800;
+      color: var(--text);
+      line-height: 1.2;
+      margin-bottom: 14px;
+    }
+
+    .step-traits {
+      list-style: none;
+      margin-bottom: 14px;
+      flex: 1;
+    }
+
+    .step-traits li {
+      font-size: 12.5px;
+      color: var(--muted);
+      padding: 3px 0;
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+      line-height: 1.4;
+    }
+
+    .step-traits li::before {
+      content: '▸';
+      color: var(--step-color);
+      font-size: 10px;
+      margin-top: 2px;
+      flex-shrink: 0;
+    }
+
+    .tools {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      margin-top: auto;
+    }
+
+    .tool-chip {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 3px 9px;
+      border-radius: 20px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.12);
+      color: var(--muted);
+      letter-spacing: 0.3px;
+    }
+
+    /* ──────────────────────────────────────────────
+       CONNECTING SVG PATH
+    ────────────────────────────────────────────── */
+    .connector-svg {
+      position: absolute;
+      bottom: 110px;
+      left: 0; right: 0;
+      width: 100%;
+      height: 800px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.6s ease;
+    }
+
+    .connector-svg.show { opacity: 1; }
+
+    .connector-path {
+      fill: none;
+      stroke: url(#pathGradient);
+      stroke-width: 2.5;
+      stroke-linecap: round;
+      stroke-dasharray: 2000;
+      stroke-dashoffset: 2000;
+      transition: stroke-dashoffset 1.2s ease;
+    }
+
+    .connector-svg.show .connector-path { stroke-dashoffset: 0; }
+
+    .connector-dot {
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    .connector-svg.show .connector-dot { opacity: 1; }
+
+    /* ──────────────────────────────────────────────
+       AXIS LABELS
+    ────────────────────────────────────────────── */
+    .axis-x {
+      position: absolute;
+      bottom: 68px;         /* centered in the gap between stage floor (110px) and footer (18px) */
+      left: 0; right: 0;
+      text-align: center;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--muted);
+      opacity: 0;
+      animation: fadeIn 0.6s ease forwards;
+      animation-delay: 6.5s;
+    }
+
+    /* Y-axis: flex container spanning staircase height so the label
+       is vertically centred without tricky rotation maths */
+    .axis-y {
+      position: absolute;
+      left: 0;
+      top: 165px;       /* below header / subtitle */
+      bottom: 108px;    /* above stage floor */
+      width: 50px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      opacity: 0;
+      animation: fadeIn 0.6s ease forwards;
+      animation-delay: 7s;
+    }
+
+    .axis-y > span {
+      white-space: nowrap;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--muted);
+      transform: rotate(-90deg);
+    }
+
+    /* ──────────────────────────────────────────────
+       FOOTER
+    ────────────────────────────────────────────── */
+    .footer {
+      position: absolute;
+      bottom: 18px;
+      left: 0; right: 0;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 500;
+      color: rgba(139,148,158,0.5);
+      letter-spacing: 1px;
+      opacity: 0;
+      animation: fadeIn 0.8s ease forwards;
+      animation-delay: 9s;
+    }
+
+    .footer span { color: rgba(139,148,158,0.8); }
+
+    /* ──────────────────────────────────────────────
+       LEVEL 5 SPECIAL GLOW PULSE
+    ────────────────────────────────────────────── */
+    .step[data-level="5"].visible {
+      animation: slideUp 0.7s cubic-bezier(0.34,1.2,0.64,1) forwards,
+                 glowPulse 2s ease-in-out 1.5s infinite;
+    }
+
+    /* ──────────────────────────────────────────────
+       PROGRESS DOTS
+    ────────────────────────────────────────────── */
+    .progress-dots {
+      position: absolute;
+      top: 155px;
+      left: 0; right: 0;
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      opacity: 0;
+      animation: fadeIn 0.5s ease forwards;
+      animation-delay: 0.3s;
+    }
+
+    .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--border);
+      transition: background 0.3s ease, transform 0.3s ease;
+    }
+
+    .dot.active {
+      transform: scale(1.3);
+    }
+
+    .dot[data-l="1"].active { background: var(--c1); box-shadow: 0 0 8px var(--c1); }
+    .dot[data-l="2"].active { background: var(--c2); box-shadow: 0 0 8px var(--c2); }
+    .dot[data-l="3"].active { background: var(--c3); box-shadow: 0 0 8px var(--c3); }
+    .dot[data-l="4"].active { background: var(--c4); box-shadow: 0 0 8px var(--c4); }
+    .dot[data-l="5"].active { background: var(--c5); box-shadow: 0 0 8px var(--c5); }
+
+    /* ──────────────────────────────────────────────
+       REPLAY BUTTON
+    ────────────────────────────────────────────── */
+    .replay-btn {
+      position: absolute;
+      bottom: 40px;
+      right: 60px;
+      background: rgba(99,102,241,0.15);
+      border: 1px solid rgba(99,102,241,0.4);
+      color: var(--c5);
+      font-size: 13px;
+      font-weight: 600;
+      padding: 8px 20px;
+      border-radius: 20px;
+      cursor: pointer;
+      letter-spacing: 0.5px;
+      opacity: 0;
+      animation: fadeIn 0.5s ease forwards;
+      animation-delay: 10s;
+      transition: background 0.2s, box-shadow 0.2s;
+      font-family: inherit;
+    }
+
+    .replay-btn:hover {
+      background: rgba(99,102,241,0.3);
+      box-shadow: 0 0 20px rgba(99,102,241,0.4);
+    }
+
+    /* ──────────────────────────────────────────────
+       VOICE TOGGLE BUTTON
+    ────────────────────────────────────────────── */
+    #voiceBtn {
+      position: absolute;
+      bottom: 40px;
+      right: 210px;
+      background: rgba(34,197,94,0.12);
+      border: 1px solid rgba(34,197,94,0.35);
+      color: var(--c4);
+      font-size: 13px;
+      font-weight: 600;
+      padding: 8px 20px;
+      border-radius: 20px;
+      cursor: pointer;
+      letter-spacing: 0.5px;
+      opacity: 0;
+      animation: fadeIn 0.5s ease forwards;
+      animation-delay: 10s;
+      transition: background 0.2s, box-shadow 0.2s;
+      font-family: inherit;
+    }
+
+    #voiceBtn:hover { background: rgba(34,197,94,0.25); box-shadow: 0 0 16px rgba(34,197,94,0.3); }
+    #voiceBtn.muted  { background: rgba(139,148,158,0.08); border-color: rgba(139,148,158,0.25); color: var(--muted); }
+
+    /* ──────────────────────────────────────────────
+       KEYFRAMES
+    ────────────────────────────────────────────── */
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+
+    @keyframes fadeInDown {
+      from { opacity: 0; transform: translateY(-20px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(120px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes glowPulse {
+      0%, 100% { box-shadow: 0 0 20px rgba(99,102,241,0.3); }
+      50%       { box-shadow: 0 0 60px rgba(99,102,241,0.7), 0 0 100px rgba(99,102,241,0.3); }
+    }
+
+    @keyframes drawPath {
+      to { stroke-dashoffset: 0; }
+    }
+
+    @keyframes popIn {
+      from { opacity: 0; transform: scale(0); }
+      to   { opacity: 1; transform: scale(1); }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Background decorations -->
+<div class="bg-grid"></div>
+<div class="bg-glow"></div>
+
+<!-- Header -->
+<div class="header">
+  <div class="eyebrow">Enterprise Automation Strategy</div>
+  <h1>Automation Maturity Model through Agentic AI</h1>
+  <div class="subtitle">From Manual Operations to Autonomous Intelligence</div>
+</div>
+
+<!-- Progress dots -->
+<div class="progress-dots">
+  <div class="dot" data-l="1"></div>
+  <div class="dot" data-l="2"></div>
+  <div class="dot" data-l="3"></div>
+  <div class="dot" data-l="4"></div>
+  <div class="dot" data-l="5"></div>
+</div>
+
+<!-- Main staircase -->
+<div class="stage" id="stage">
+
+  <!-- Level 1 -->
+  <div class="step" data-level="1" data-delay="1500">
+    <div class="step-fill"></div>
+    <div class="step-top-line"></div>
+    <div class="step-bg"></div>
+    <div class="step-border"></div>
+    <div class="step-content">
+      <div class="level-badge">Level 1</div>
+      <div class="step-icon">🖐️</div>
+      <div class="step-name">Manual<br>Operations</div>
+      <ul class="step-traits">
+        <li>Human-driven, ad-hoc execution</li>
+        <li>Error-prone & non-repeatable</li>
+        <li>No audit trail or versioning</li>
+        <li>High MTTR &amp; operational cost</li>
+      </ul>
+      <div class="tools">
+        <span class="tool-chip">SSH</span>
+        <span class="tool-chip">CLI</span>
+        <span class="tool-chip">Runbooks</span>
+        <span class="tool-chip">Tickets</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Level 2 -->
+  <div class="step" data-level="2" data-delay="2300">
+    <div class="step-fill"></div>
+    <div class="step-top-line"></div>
+    <div class="step-bg"></div>
+    <div class="step-border"></div>
+    <div class="step-content">
+      <div class="level-badge">Level 2</div>
+      <div class="step-icon">📜</div>
+      <div class="step-name">Scripted<br>Automation</div>
+      <ul class="step-traits">
+        <li>Repeatable via scripts &amp; jobs</li>
+        <li>Brittle — tightly coupled to env</li>
+        <li>CI/CD pipelines established</li>
+        <li>Requires human oversight</li>
+        <li>Partial test coverage</li>
+      </ul>
+      <div class="tools">
+        <span class="tool-chip">Bash</span>
+        <span class="tool-chip">Python</span>
+        <span class="tool-chip">Cron</span>
+        <span class="tool-chip">Jenkins</span>
+        <span class="tool-chip">GitHub Actions</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Level 3 -->
+  <div class="step" data-level="3" data-delay="3100">
+    <div class="step-fill"></div>
+    <div class="step-top-line"></div>
+    <div class="step-bg"></div>
+    <div class="step-border"></div>
+    <div class="step-content">
+      <div class="level-badge">Level 3</div>
+      <div class="step-icon">⚙️</div>
+      <div class="step-name">Orchestrated<br>Automation</div>
+      <ul class="step-traits">
+        <li>Standardised IaC &amp; role-based</li>
+        <li>Idempotent configuration mgmt</li>
+        <li>Centralised workflow scheduling</li>
+        <li>RBAC &amp; audit logging</li>
+        <li>Multi-tier environment support</li>
+        <li>Version-controlled infrastructure</li>
+      </ul>
+      <div class="tools">
+        <span class="tool-chip">Ansible</span>
+        <span class="tool-chip">AWX/Tower</span>
+        <span class="tool-chip">Terraform</span>
+        <span class="tool-chip">Vault</span>
+        <span class="tool-chip">PostgreSQL</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Level 4 -->
+  <div class="step" data-level="4" data-delay="3900">
+    <div class="step-fill"></div>
+    <div class="step-top-line"></div>
+    <div class="step-bg"></div>
+    <div class="step-border"></div>
+    <div class="step-content">
+      <div class="level-badge">Level 4</div>
+      <div class="step-icon">🧠</div>
+      <div class="step-name">Intelligent<br>Automation</div>
+      <ul class="step-traits">
+        <li>Context-aware AI-assisted ops</li>
+        <li>RAG-powered knowledge retrieval</li>
+        <li>Predictive failure detection</li>
+        <li>NLP-driven runbook lookup</li>
+        <li>ML-based anomaly detection</li>
+        <li>Human-in-loop approvals</li>
+        <li>LLM-guided root cause analysis</li>
+      </ul>
+      <div class="tools">
+        <span class="tool-chip">LangChain</span>
+        <span class="tool-chip">Ollama</span>
+        <span class="tool-chip">RAG</span>
+        <span class="tool-chip">Vector DB</span>
+        <span class="tool-chip">ML Models</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Level 5 -->
+  <div class="step" data-level="5" data-delay="4700">
+    <div class="step-fill"></div>
+    <div class="step-top-line"></div>
+    <div class="step-bg"></div>
+    <div class="step-border"></div>
+    <div class="step-content">
+      <div class="level-badge">✦ Level 5</div>
+      <div class="step-icon">🤖</div>
+      <div class="step-name">Agentic<br>AI</div>
+      <ul class="step-traits">
+        <li>Fully autonomous decision-making</li>
+        <li>Multi-agent collaboration graphs</li>
+        <li>Self-healing infrastructure</li>
+        <li>Tool-use &amp; API orchestration</li>
+        <li>Long-horizon planning &amp; memory</li>
+        <li>Continuous self-improvement</li>
+        <li>Zero-touch operations at scale</li>
+        <li>Autonomous incident response</li>
+      </ul>
+      <div class="tools">
+        <span class="tool-chip">LangGraph</span>
+        <span class="tool-chip">Multi-Agent</span>
+        <span class="tool-chip">ReAct</span>
+        <span class="tool-chip">Tool-Use</span>
+        <span class="tool-chip">AWX API</span>
+        <span class="tool-chip">Autonomous</span>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /stage -->
+
+<!-- Connector SVG path drawn over the staircase tops -->
+<svg class="connector-svg" viewBox="0 0 1920 800" preserveAspectRatio="none" id="connectorSvg">
+  <defs>
+    <linearGradient id="pathGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%"   stop-color="#ef4444" />
+      <stop offset="25%"  stop-color="#f97316" />
+      <stop offset="50%"  stop-color="#eab308" />
+      <stop offset="75%"  stop-color="#22c55e" />
+      <stop offset="100%" stop-color="#6366f1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="blur" />
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <!-- Path connecting top-centers of all 5 steps (approximate positions) -->
+  <path class="connector-path" filter="url(#glow)"
+    d="M 245 460 L 555 370 L 865 280 L 1175 190 L 1485 100" />
+  <!-- Dots at each connection point -->
+  <circle class="connector-dot" cx="245"  cy="460" r="6" fill="#ef4444" filter="url(#glow)" style="transition-delay:0.0s" />
+  <circle class="connector-dot" cx="555"  cy="370" r="6" fill="#f97316" filter="url(#glow)" style="transition-delay:0.2s" />
+  <circle class="connector-dot" cx="865"  cy="280" r="6" fill="#eab308" filter="url(#glow)" style="transition-delay:0.4s" />
+  <circle class="connector-dot" cx="1175" cy="190" r="6" fill="#22c55e" filter="url(#glow)" style="transition-delay:0.6s" />
+  <circle class="connector-dot" cx="1485" cy="100" r="6" fill="#6366f1" filter="url(#glow)" style="transition-delay:0.8s" />
+</svg>
+
+<!-- Axis labels -->
+<div class="axis-x">Automation Journey &nbsp;→</div>
+<div class="axis-y"><span>Capability &amp; Autonomy &nbsp;→</span></div>
+
+<!-- Footer -->
+<div class="footer">
+  Powered by &nbsp;<span>LangChain</span>&nbsp;·&nbsp;<span>LangGraph</span>&nbsp;·&nbsp;
+  <span>Ansible</span>&nbsp;·&nbsp;<span>AWX / Tower</span>&nbsp;·&nbsp;
+  <span>Terraform</span>&nbsp;·&nbsp;<span>HashiCorp Vault</span>&nbsp;·&nbsp;
+  <span>Ollama</span>
+</div>
+
+<!-- Voice toggle -->
+<button id="voiceBtn">🔊 &nbsp;Voice On</button>
+
+<!-- Replay -->
+<button class="replay-btn" id="replayBtn">↺ &nbsp;Replay</button>
+
+<script>
+  /*
+   * Sequential narration engine — generation-guarded.
+   *
+   * Root cause of Level 3 repeating / Levels 4-5 not playing:
+   *   The pause()/resume() keep-alive fired at ~10 s, right when Level 3 was
+   *   speaking. Chrome emits a spurious onend on pause(), so nextSentence()
+   *   was called twice. Both calls found i >= sentences.length and invoked
+   *   done(), so playNext(next) ran twice — a cascade of double-reveals.
+   *   The guard timer compounded this: if onend fired AND the timer expired,
+   *   nextSentence() was called again, re-triggering done().
+   *
+   * Fixes applied:
+   *   1. Keep-alive REMOVED entirely. Short sentences (< 10 s each) never
+   *      hit the 15 s Chrome bug on their own.
+   *   2. generation counter: incremented on every cancel/restart. Every async
+   *      callback captures its gen; stale callbacks (gen !== generation) no-op.
+   *   3. onceDone() wrapper: done() fires at most once per speakSentences call,
+   *      even if onend + onerror both fire for the same utterance.
+   *   4. Guard timer REMOVED: only onend/onerror can advance the sentence index.
+   */
+
+  const SEQUENCE = [
+    {
+      type: 'intro',
+      sentences: [
+        "Welcome to the Automation Maturity Model through Agentic AI.",
+        "Five levels — from manual operations to fully autonomous, self-healing intelligence."
+      ]
+    },
+    {
+      type: 'step', level: 1,
+      sentences: [
+        "Level 1: Manual Operations.",
+        "Every task runs by hand via SSH and runbooks — ad hoc, error-prone, with no audit trail."
+      ]
+    },
+    {
+      type: 'step', level: 2,
+      sentences: [
+        "Level 2: Scripted Automation.",
+        "Bash, Python, and CI/CD pipelines bring repeatability, but scripts remain brittle and need human oversight."
+      ]
+    },
+    {
+      type: 'step', level: 3,
+      sentences: [
+        "Level 3: Orchestrated Automation.",
+        "Ansible, AWX Tower, and Terraform deliver idempotent, role-based, version-controlled infrastructure workflows."
+      ]
+    },
+    {
+      type: 'step', level: 4,
+      sentences: [
+        "Level 4: Intelligent Automation.",
+        "LangChain and RAG-powered AI bring context-aware assistance, predictive failure detection, and human-in-loop decisions."
+      ]
+    },
+    {
+      type: 'step', level: 5,
+      sentences: [
+        "Level 5: Agentic AI.",
+        "LangGraph multi-agent systems deliver fully autonomous decision-making and self-healing infrastructure at scale."
+      ]
+    },
+    {
+      type: 'finish',
+      sentences: [
+        "Capability and autonomy grow at every level.",
+        "Powered by LangChain, Ansible, AWX, LangGraph, HashiCorp Vault, and Ollama."
+      ]
+    }
+  ];
+
+  const voiceBtn = document.getElementById('voiceBtn');
+  const synth    = window.speechSynthesis;
+
+  let voiceMuted  = false;
+  let generation  = 0;     /* incremented on every cancel — invalidates all stale callbacks */
+  let cachedVoice = null;
+
+  /* ── Voice list (Chrome loads async) ── */
+  function primeVoices() {
+    const voices    = synth.getVoices();
+    const preferred = [
+      'Google UK English Female',
+      'Microsoft Aria Online (Natural) - English (United States)',
+      'Microsoft Zira Desktop - English (United States)',
+      'Google US English',
+      'Karen', 'Samantha'
+    ];
+    for (const name of preferred) {
+      const v = voices.find(v => v.name === name);
+      if (v) { cachedVoice = v; return; }
+    }
+    cachedVoice = voices.find(v => /en[-_]?(GB|US|AU)/i.test(v.lang)) || voices[0] || null;
+  }
+  if (synth.onvoiceschanged !== undefined) { synth.onvoiceschanged = primeVoices; }
+  primeVoices();
+
+  /* ── Speak sentences for a given generation; call done() exactly once ── */
+  function speakSentences(sentences, gen, done) {
+    let called = false;
+    function onceDone() {
+      if (called || gen !== generation) return;
+      called = true;
+      done();
+    }
+
+    if (voiceMuted || !sentences.length) { onceDone(); return; }
+
+    let i = 0;
+    function next() {
+      if (gen !== generation) return;        /* cancelled — drop silently */
+      if (i >= sentences.length || voiceMuted) { onceDone(); return; }
+
+      const text = sentences[i++];
+      const utt  = new SpeechSynthesisUtterance(text);
+      utt.rate   = 1.0;
+      utt.pitch  = 1.0;
+      utt.volume = 1.0;
+      if (cachedVoice) utt.voice = cachedVoice;
+      utt.onend  = next;
+      utt.onerror = next;
+      synth.speak(utt);
+    }
+    next();
+  }
+
+  /* ── Advance one sequence entry at a time ── */
+  function playNext(index, gen) {
+    if (gen !== generation) return;
+    if (index >= SEQUENCE.length) {
+      setTimeout(fullReset, 5000);
+      return;
+    }
+
+    const item = SEQUENCE[index];
+
+    if (item.type === 'step') {
+      const step = document.querySelector(`.step[data-level="${item.level}"]`);
+      const dot  = document.querySelector(`.dot[data-l="${item.level}"]`);
+      if (step) step.classList.add('visible');
+      if (dot)  dot.classList.add('active');
+    } else if (item.type === 'finish') {
+      document.getElementById('connectorSvg').classList.add('show');
+    }
+
+    if (voiceMuted) {
+      setTimeout(() => {
+        if (gen !== generation) return;
+        playNext(index + 1, gen);
+      }, 3500);
+    } else {
+      speakSentences(item.sentences, gen, () => {
+        setTimeout(() => playNext(index + 1, gen), 400);
+      });
+    }
+  }
+
+  /* ── Start / cancel ── */
+  function startSequence() {
+    generation++;
+    const gen = generation;
+    synth.cancel();
+    setTimeout(() => playNext(0, gen), 600);
+  }
+
+  function cancelSequence() {
+    generation++;      /* all pending callbacks now see gen !== generation */
+    synth.cancel();
+  }
+
+  function fullReset() { cancelSequence(); location.reload(); }
+
+  /* ── Voice toggle ── */
+  voiceBtn.addEventListener('click', () => {
+    voiceMuted = !voiceMuted;
+    if (voiceMuted) {
+      synth.cancel();
+      voiceBtn.textContent = '🔇  Voice Off';
+      voiceBtn.classList.add('muted');
+    } else {
+      voiceBtn.textContent = '🔊  Voice On';
+      voiceBtn.classList.remove('muted');
+    }
+  });
+
+  document.getElementById('replayBtn').addEventListener('click', fullReset);
+
+  /* ── Go ── */
+  startSequence();
+</script>
+
+</body>
+</html>

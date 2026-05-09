@@ -73,3 +73,11 @@ Thumbs.db
 .coverage
 htmlcov/
 .tox/
+projects/02_automation_maturity_model/README.md
+projects/02_automation_maturity_model/record_video.py
+projects/02_automation_maturity_model/requirements.txt
+projects/02_automation_maturity_model/output/automation_maturity_model.webm
+projects/02_automation_maturity_model/generate_executive_deck.py
+docs/EXECUTIVE_PRESENTATION.md
+scripts/generate_executive_presentation.py
+scripts/requirements_presentation.txt

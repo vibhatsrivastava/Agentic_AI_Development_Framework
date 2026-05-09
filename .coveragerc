@@ -1,0 +1,18 @@
+[run]
+relative_files = true
+source = .
+omit =
+    */tests/*
+    */test_*.py
+    */__pycache__/*
+    .venv/*
+    venv/*
+    */site-packages/*
+
+[report]
+precision = 2
+show_missing = true
+skip_covered = false
+
+[html]
+directory = htmlcov
