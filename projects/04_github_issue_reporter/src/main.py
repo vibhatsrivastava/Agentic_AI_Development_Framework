@@ -12,7 +12,7 @@ import argparse
 import json
 import requests
 from datetime import date
-from langgraph.prebuilt import create_react_agent
+from langchain.agents import create_agent
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage
 from common.llm_factory import get_chat_llm
@@ -238,10 +238,10 @@ def build_agent():
         Compiled LangGraph agent with GitHub tools
     """
     llm = get_chat_llm()
-    return create_react_agent(
+    return create_agent(
         model=llm,
         tools=[list_open_issues, get_issue_details, get_issue_comments],
-        prompt=SYSTEM_PROMPT,
+        system_prompt=SYSTEM_PROMPT,
     )
 
 

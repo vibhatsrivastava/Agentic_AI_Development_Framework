@@ -272,12 +272,12 @@ class TestAgentBuilding:
 
     def test_agent_has_required_tools(self, mock_chat_llm, mock_env):
         """Test that agent is created with all three required tools."""
-        with patch("src.main.create_react_agent") as mock_create:
+        with patch("src.main.create_agent") as mock_create:
             mock_create.return_value = Mock()
             
             build_agent()
 
-            # Verify create_react_agent was called with tools
+            # Verify create_agent was called with tools
             assert mock_create.called
             call_kwargs = mock_create.call_args[1]
             assert "tools" in call_kwargs
@@ -288,27 +288,18 @@ class TestAgentBuilding:
 class TestCLIArgumentParsing:
     """Tests for CLI argument parsing and validation."""
 
-    def test_report_mode_argument(self, mock_chat_llm, mock_github_api, mock_env, capsys):
+    def test_report_mode_argument(self):
         """Test --report flag is parsed correctly."""
-        with patch("sys.argv", ["main.py", "--report"]):
-            with patch("src.main.agent") as mock_agent:
-                # Mock successful execution
-                mock_response = Mock()
-                mock_response.json.return_value = {"total_open": 0, "issues": []}
-                mock_github_api.return_value = mock_response
-                
-                # This would normally call main(), but we'll test the arg parsing separately
-                import argparse
-                from src.main import main as main_func
-                
-                parser = argparse.ArgumentParser()
-                group = parser.add_mutually_exclusive_group(required=True)
-                group.add_argument("--report", action="store_true")
-                group.add_argument("--issue", type=int)
-                
-                args = parser.parse_args(["--report"])
-                assert args.report is True
-                assert args.issue is None
+        import argparse
+        
+        parser = argparse.ArgumentParser()
+        group = parser.add_mutually_exclusive_group(required=True)
+        group.add_argument("--report", action="store_true")
+        group.add_argument("--issue", type=int)
+        
+        args = parser.parse_args(["--report"])
+        assert args.report is True
+        assert args.issue is None
 
     def test_issue_mode_argument(self):
         """Test --issue argument is parsed correctly."""

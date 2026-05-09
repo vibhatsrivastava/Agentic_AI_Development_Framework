@@ -10,7 +10,7 @@ import sys
 import requests
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage
-from langgraph.prebuilt import create_react_agent
+from langchain.agents import create_agent
 from common.llm_factory import get_chat_llm
 from common.utils import get_logger
 
@@ -96,10 +96,10 @@ def build_agent():
         Compiled agent graph
     """
     llm = get_chat_llm()
-    return create_react_agent(
+    return create_agent(
         model=llm,
         tools=[get_weather],
-        prompt=WEATHER_SYSTEM_PROMPT,
+        system_prompt=WEATHER_SYSTEM_PROMPT,
     )
 
 

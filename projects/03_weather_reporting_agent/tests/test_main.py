@@ -124,7 +124,7 @@ class TestWmoCodes:
 class TestBuildAgent:
     def test_build_agent_returns_agent(self, mock_chat_llm):
         """build_agent() returns a compiled graph without errors."""
-        with patch("src.main.create_react_agent") as mock_create:
+        with patch("src.main.create_agent") as mock_create:
             mock_create.return_value = Mock()
             agent = build_agent()
         assert agent is not None
