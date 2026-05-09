@@ -12,7 +12,11 @@ from datetime import date
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
-
+# Remove any cached src.main from other projects to ensure we get THIS project's src.main
+if 'src.main' in sys.modules:
+    del sys.modules['src.main']
+if 'src' in sys.modules:
+    del sys.modules['src']
 
 @pytest.fixture
 def mock_chat_llm(mocker):

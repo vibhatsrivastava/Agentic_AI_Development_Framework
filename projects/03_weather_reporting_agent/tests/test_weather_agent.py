@@ -124,6 +124,7 @@ class TestWmoCodes:
 class TestBuildAgent:
     def test_build_agent_returns_agent(self, mock_chat_llm):
         """build_agent() returns a compiled graph without errors."""
+        # Patch create_agent in the src.main namespace where it's used
         with patch("src.main.create_agent") as mock_create:
             mock_create.return_value = Mock()
             agent = build_agent()
@@ -153,13 +154,16 @@ class TestAsk:
 # ---------------------------------------------------------------------------
 
 class TestMain:
-    def test_main_runs_without_error(self, capsys):
+    def test_main_runs_without_error(self, capsys, mock_chat_llm):
         """main() prints Q/A pairs for all three sample questions."""
+        # Mock the agent to return predictable responses without real API calls
         mock_agent = Mock()
         mock_agent.invoke.return_value = {
             "messages": [AIMessage(content="Mocked weather answer")]
         }
-        with patch("src.main.build_agent", return_value=mock_agent):
+        
+        # Patch create_agent in the src.main namespace
+        with patch("src.main.create_agent", return_value=mock_agent):
             main([])
 
         captured = capsys.readouterr()

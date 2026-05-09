@@ -3,14 +3,22 @@ conftest.py — pytest fixtures for 03_weather_reporting_agent.
 """
 
 import sys
+
 from pathlib import Path
 import pytest
 from unittest.mock import Mock
 
-# Make 'src' importable when running pytest from the repo root
+# Explicitly load this project's src.main module to avoid conflicts with other projects
 _project_root = Path(__file__).parent.parent
+_src_path = _project_root / "src"
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
+
+# Remove any cached src.main from other projects to ensure we get THIS project's src.main
+if 'src.main' in sys.modules:
+    del sys.modules['src.main']
+if 'src' in sys.modules:
+    del sys.modules['src']
 
 
 @pytest.fixture
