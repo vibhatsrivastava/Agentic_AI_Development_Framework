@@ -251,6 +251,15 @@ jobs:
           uv pip install -r requirements-base.txt
           uv pip install -e ./common
       
+      # Install project-specific dependencies
+      - name: Install project dependencies
+        run: |
+          for project_dir in projects/*/; do
+            if [ -f "$project_dir/requirements.txt" ]; then
+              pip install -r "$project_dir/requirements.txt"
+            fi
+          done
+      
       - name: Run unit tests
         run: pytest -m "not integration" --cov --cov-fail-under=75
       
@@ -258,6 +267,29 @@ jobs:
       # ✅ No real LLM calls
       # ✅ Verifies critical logic
 ```
+
+### Dependency Management in CI
+
+**The CI workflow installs dependencies in three layers:**
+
+1. **Root dependencies** (`requirements-base.txt`) — Core testing/dev tools (pytest, coverage, etc.)
+2. **Common package** (`common/`) — Shared LLM utilities, vault integration, rate limiting
+3. **Project dependencies** (all `projects/*/requirements.txt`) — Project-specific packages
+
+**Why install all project dependencies?**
+- pytest discovers tests in ALL projects (`testpaths = common projects` in pytest.ini)
+- Each project may have unique dependencies (e.g., `requests`, `redis`, `chromadb`)
+- Installing all ensures test isolation and catches integration issues between projects
+
+**Adding new project dependencies:**
+1. Add to `projects/YOUR_PROJECT/requirements.txt` for project-specific deps
+2. Add to `requirements-base.txt` if used by 3+ projects (becomes a "common" dependency)
+3. CI automatically discovers and installs both
+
+**Troubleshooting:**
+- **ImportError in CI but passes locally?** Your local venv has the package installed; CI doesn't. Add to `requirements.txt`.
+- **Tests skip in CI?** Check pytest markers — CI runs `-m "not integration"` to skip real LLM calls.
+- **Dependency conflicts?** Check for version mismatches between projects (e.g., project A needs `requests==2.31.0`, project B needs `requests>=2.32.0`)
 
 ### Manual Testing (Pre-Merge)
 

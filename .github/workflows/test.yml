@@ -34,6 +34,16 @@ jobs:
           pip install -r requirements-base.txt
           pip install -e ./common
       
+      - name: Install project dependencies
+        run: |
+          echo "Installing dependencies for all projects..."
+          for project_dir in projects/*/; do
+            if [ -f "$project_dir/requirements.txt" ]; then
+              echo "Installing ${project_dir}requirements.txt"
+              pip install -r "$project_dir/requirements.txt"
+            fi
+          done
+      
       - name: Run tests with coverage
         run: |
           pytest -m "not integration" --cov --cov-report=term --cov-report=html --cov-report=xml --cov-fail-under=75

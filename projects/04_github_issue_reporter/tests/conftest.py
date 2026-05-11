@@ -125,6 +125,13 @@ def sample_bot_comment():
 @pytest.fixture
 def sample_recent_issues():
     """Sample GitHub API response for recent issues (last 24 hours)."""
+    from datetime import datetime, timedelta, timezone
+    
+    # Generate timestamps that are always within the last 24 hours
+    now = datetime.now(timezone.utc)
+    six_hours_ago = now - timedelta(hours=6)
+    twelve_hours_ago = now - timedelta(hours=12)
+    
     return [
         {
             "number": 100,
@@ -132,8 +139,8 @@ def sample_recent_issues():
             "user": {"login": "alice"},
             "assignee": None,
             "labels": [{"name": "feature"}],
-            "created_at": "2026-05-10T18:00:00Z",
-            "updated_at": "2026-05-10T18:00:00Z",
+            "created_at": six_hours_ago.isoformat().replace("+00:00", "Z"),
+            "updated_at": six_hours_ago.isoformat().replace("+00:00", "Z"),
             "html_url": "https://github.com/testowner/testrepo/issues/100",
             "body": "Add support for new feature",
         },
@@ -143,8 +150,8 @@ def sample_recent_issues():
             "user": {"login": "bob"},
             "assignee": {"login": "alice"},
             "labels": [{"name": "bug"}],
-            "created_at": "2026-05-10T12:00:00Z",
-            "updated_at": "2026-05-10T12:00:00Z",
+            "created_at": twelve_hours_ago.isoformat().replace("+00:00", "Z"),
+            "updated_at": twelve_hours_ago.isoformat().replace("+00:00", "Z"),
             "html_url": "https://github.com/testowner/testrepo/issues/99",
             "body": "Something is broken",
         },

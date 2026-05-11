@@ -373,6 +373,7 @@ python src/main.py
 - **`common/` import errors** — The project venv must have `ai-agent-common` installed. Run `uv pip install -e ./common` from the repo root targeting the project venv, or re-scaffold using `ai-agent-builder new-project`
 - **Do NOT add `sys.path.insert`** — `common/` is a proper installable package; path hacks are no longer needed or used
 - **`.env` not found** — `llm_factory.py` calls `load_project_env()` which searches upward; ensure `.env` exists at repo root
+- **PR tests failing with ImportError** — The CI workflow installs all project `requirements.txt` files via a loop. If you added a new import, ensure it's listed in your project's `requirements.txt`. For dependencies used by 3+ projects, add to root `requirements-base.txt`. See [Testing Strategy](../docs/TESTING_STRATEGY.md#dependency-management-in-ci) for details.
 - **Project `.env` usage** — Integration-specific projects (GitHub, Redis, etc.) MAY have a project `.env` file for integration variables only. Common variables (OLLAMA_*, VAULT_*) always live in root `.env`. Simple projects use only root `.env`. Projects automatically load both via `load_project_env()` from `common.utils`.
 - **Wrong LLM class** — Use `get_chat_llm()` (not `get_llm()`) for agents and LangGraph nodes; `OllamaLLM` does not support tool calling
 - **Model not available** — Run `ollama list` to see downloaded models; run `ollama pull <model>` if missing

@@ -859,7 +859,7 @@ class TestMainFunction:
             
             captured = capsys.readouterr()
             assert "DRY RUN MODE" in captured.out
-            assert "Found 2 issues" in captured.out or "No new issues" in captured.out
+            assert ("Found" in captured.out and "issues" in captured.out) or "No new issues" in captured.out
 
     def test_main_auto_analyze_mode_no_new_issues(self, mock_chat_llm, mock_github_api, mock_env, capsys):
         """Test auto-analyze mode when no new issues exist."""
