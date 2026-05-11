@@ -28,11 +28,13 @@
 
 ## Overview
 
-The **GitHub Issue Reporter & Solution Recommender Agent** is an AI-powered tool that helps development teams manage GitHub repository issues more efficiently. It operates in two modes:
+The **GitHub Issue Reporter & Solution Recommender Agent** is an AI-powered tool that helps development teams manage GitHub repository issues more efficiently. It operates in three modes:
 
-1. **Report Mode** (`--report`): Generates a comprehensive markdown report of all open issues in a repository, including metadata like age, assignees, labels, and last update time.
+1. **Report Mode** (`--report`): Generates a comprehensive markdown report of all open issues in a repository, including metadata like age, assignees, labels, and last update time. Uses direct Python formatting for fast execution without LLM overhead.
 
-2. **Recommendation Mode** (`--issue N`): Analyzes a specific issue and provides AI-generated recommendations for resolution, including root cause analysis (for bugs) or implementation approaches (for features).
+2. **Recommendation Mode** (`--issue N`): Analyzes a specific issue and provides AI-generated recommendations for resolution, including root cause analysis (for bugs) or implementation approaches (for features). Posts the recommendation directly to GitHub as a collapsible comment.
+
+3. **Auto-Analyze Mode** (`--auto-analyze`): Automatically discovers all issues opened in the last 24 hours, analyzes each one (skipping issues that already have bot recommendations), and posts AI-generated recommendations directly to GitHub. Supports `--dry-run` for preview without posting.
 
 This agent uses LangGraph's ReAct (Reasoning + Acting) pattern to orchestrate multiple GitHub API tools and an LLM to provide intelligent insights.
 
@@ -48,6 +50,7 @@ This agent uses LangGraph's ReAct (Reasoning + Acting) pattern to orchestrate mu
 - Calculates issue age and staleness metrics
 - Handles pagination automatically (up to 200 issues)
 - Excludes pull requests from the issue list
+- **NEW:** Direct Python formatting (no LLM) for faster execution
 
 ✅ **AI-Powered Recommendations**
 - Analyzes issue content including title, body, labels, and comments
@@ -56,18 +59,30 @@ This agent uses LangGraph's ReAct (Reasoning + Acting) pattern to orchestrate mu
   - **Features:** Implementation approach, design notes, acceptance criteria
 - Grounds recommendations in actual issue data (no hallucination)
 - Handles prompt injection attacks with safe content processing
+- **NEW:** Posts recommendations directly to GitHub as collapsible comments
+- **NEW:** Duplicate detection prevents redundant bot comments
+
+✅ **Automated Batch Processing**
+- **NEW:** Auto-analyze mode discovers and processes new issues automatically
+- Filters issues by creation time (last 24 hours)
+- Skips issues that already have bot recommendations
+- Supports dry-run mode for safe preview
+- Configurable issue limit prevents rate limiting
+- Comprehensive summary report after batch processing
 
 ✅ **Robust Error Handling**
 - Graceful handling of HTTP errors (404, 403, 429)
 - Clear error messages for configuration issues
 - Input validation for issue numbers
 - Automatic retry and rate limiting support
+- Detects insufficient token permissions and provides guidance
 
 ✅ **Security Hardened**
 - Secure token management via environment variables
 - Content truncation to prevent context overflow
 - Prompt injection mitigation with XML delimiters
 - No sensitive data logging
+- Bot marker prevents comment tampering
 
 ---
 
@@ -89,11 +104,14 @@ This agent uses LangGraph's ReAct (Reasoning + Acting) pattern to orchestrate mu
    - AI-generated test case suggestions for bugs
    - Acceptance criteria recommendations for features
    - Root cause analysis helps prevent recurring issues
+   - **NEW:** Proactive recommendations on new issues prevent stale backlogs
 
 4. **Better Project Management**
    - Age and staleness metrics help prioritize work
    - Unassigned issues are highlighted
    - Label distribution shows work categories
+   - **NEW:** Automated analysis reduces manual triage time
+   - **NEW:** Batch processing keeps pace with active repositories
 
 ### For Individual Developers
 
@@ -116,15 +134,31 @@ This agent uses LangGraph's ReAct (Reasoning + Acting) pattern to orchestrate mu
 ```
 User CLI
   ↓
-Argument Parser (--report | --issue N)
+Argument Parser (--report | --issue N | --auto-analyze)
   ↓
-Agent Orchestrator (LangGraph ReAct)
-  ↓
-GitHub API Tools (list_open_issues, get_issue_details, get_issue_comments)
-  ↓
-LLM Reasoning (ChatOllama)
-  ↓
-Structured Output (Markdown Report or Recommendation)
+┌─────────────────────────────────────────────┐
+│  Report Mode (Direct Python)                │
+│  • list_open_issues() → format_report()     │
+│  • No LLM required                          │
+└─────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────┐
+│  Issue / Auto-Analyze Mode (LangGraph)      │
+│  ↓                                          │
+│  Agent Orchestrator (LangGraph ReAct)       │
+│  ↓                                          │
+│  GitHub API Tools (6 tools)                 │
+│  • list_open_issues                         │
+│  • get_issue_details                        │
+│  • get_issue_comments                       │
+│  • check_existing_bot_comments (NEW)        │
+│  • post_issue_comment (NEW)                 │
+│  • list_recent_issues (NEW)                 │
+│  ↓                                          │
+│  LLM Reasoning (ChatOllama)                 │
+│  ↓                                          │
+│  Structured Output + GitHub Write           │
+└─────────────────────────────────────────────┘
 ```
 
 ### Components
@@ -156,6 +190,23 @@ Structured Output (Markdown Report or Recommendation)
    - Truncates each comment to 1000 chars
    - Returns JSON with comment metadata
 
+4. **`check_existing_bot_comments(owner, repo, issue_number)` (NEW)**
+   - Searches issue comments for bot marker (`<!-- AI-ANALYSIS-BOT -->`)
+   - Prevents duplicate recommendations
+   - Returns boolean flag and comment ID if found
+
+5. **`post_issue_comment(owner, repo, issue_number, comment_body)` (NEW)**
+   - Posts AI recommendation as a GitHub comment
+   - Formats comment with collapsible details block
+   - Includes hidden bot marker for duplicate detection
+   - Returns comment URL and timestamp
+
+6. **`list_recent_issues(owner, repo, hours=24)` (NEW)**
+   - Fetches issues created within last N hours (default 24)
+   - Filters by creation timestamp
+   - Excludes pull requests
+   - Returns JSON with recent issues metadata
+
 ---
 
 ## Prerequisites
@@ -182,7 +233,7 @@ ollama list
 
 ### GitHub Personal Access Token
 
-You need a GitHub Personal Access Token (PAT) with appropriate scopes:
+You need a GitHub Personal Access Token (PAT) with **write permissions** for posting comments:
 
 1. Navigate to [GitHub Settings > Developer Settings > Personal Access Tokens > Tokens (classic)](https://github.com/settings/tokens)
 2. Click **Generate new token (classic)**
@@ -190,10 +241,16 @@ You need a GitHub Personal Access Token (PAT) with appropriate scopes:
    - **Name:** `Agentic AI Issue Reporter`
    - **Expiration:** Choose appropriate duration
    - **Scopes:**
-     - For **public repositories:** Select `public_repo`
-     - For **private repositories:** Select `repo` (full repo access)
+     - For **public repositories:** Select `public_repo` (includes read AND write)
+     - For **private repositories:** Select `repo` (full repository access)
 4. Click **Generate token**
 5. **IMPORTANT:** Copy the token immediately (you won't see it again)
+
+⚠️ **Token Scope Requirements:**
+- **Read-only access is NOT sufficient** — the agent posts comments to GitHub
+- `public_repo` scope grants full read/write access to public repositories
+- `repo` scope grants full read/write access to all repositories (public and private)
+- If you see "403 Forbidden" errors, regenerate your token with correct scopes
 
 ---
 
@@ -263,22 +320,36 @@ python -c "from common.llm_factory import get_chat_llm; print('✅ Common packag
 
 ### Environment Variables
 
-All configuration is managed in the **root `.env` file** (not project-level). Add these variables:
+All configuration is managed via environment variables. This project uses **hierarchical environment loading**: root `.env` for common variables (OLLAMA_*) and project `.env` for GitHub-specific variables.
 
+**Root `.env` (already configured):**
+```env
+# === Ollama Configuration ===
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_API_KEY=  # Leave blank for local; set Bearer token for remote
+OLLAMA_MODEL=llama3.2:3b
+OLLAMA_EMBEDDING_MODEL=nomic-embed-text
+
+# === Logging ===
+LOG_LEVEL=INFO
+```
+
+**Project `.env` (this directory):**
 ```env
 # === GitHub Configuration ===
 GITHUB_TOKEN=ghp_your_personal_access_token_here
 GITHUB_REPO_OWNER=your_github_username_or_org
 GITHUB_REPO_NAME=your_repository_name
+```
 
-# === Ollama Configuration ===
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_API_KEY=  # Leave blank for local; set Bearer token for remote
-OLLAMA_MODEL=llama3.2:3b  # Or any chat model you have installed
-OLLAMA_EMBEDDING_MODEL=nomic-embed-text
+Create the project `.env` file from the example:
 
-# === Logging ===
-LOG_LEVEL=INFO  # DEBUG for troubleshooting
+```powershell
+# From project directory (04_github_issue_reporter/)
+Copy-Item .env.example .env
+
+# Edit .env with your values
+notepad .env
 ```
 
 ### Configuration Details
@@ -339,42 +410,147 @@ python src\main.py --report
 ================================================================================
 ```
 
-#### Recommendation Mode: Analyze Specific Issue
+#### Recommendation Mode: Analyze Specific Issue and Post to GitHub
 
 ```powershell
-# Get recommendation for issue #42
+# Analyze issue #42 and post recommendation as a comment
 python src\main.py --issue 42
 ```
+
+**What it does:**
+1. Checks if issue #42 already has a bot recommendation (duplicate detection)
+2. If not, fetches issue details and comments
+3. Generates AI-powered recommendation with structured analysis
+4. Posts recommendation to GitHub as a collapsible comment
+5. Prints confirmation with comment URL
 
 **Example Output:**
 
 ```markdown
 ================================================================================
-## Recommendation for Issue #42 — Fix token counter edge case
+✅ Posted recommendation to issue #42
+Comment URL: https://github.com/owner/repo/issues/42#issuecomment-123456789
+
+The recommendation has been added as a collapsible comment on GitHub.
+================================================================================
+```
+
+**If issue already has bot recommendation:**
+
+```markdown
+================================================================================
+ℹ️  Skipping: Issue #42 already has a bot recommendation
+================================================================================
+```
+
+**GitHub Comment Format:**
+
+The recommendation appears as a collapsible comment:
+
+```markdown
+<!-- AI-ANALYSIS-BOT -->
+## 🤖 AI Analysis
+
+<details>
+<summary>View Recommendation</summary>
 
 **Issue Type:** Bug
 
 **Root Cause Hypothesis:**
-The `token_counter.py` module calls `split()` on the input string without first 
-checking for empty or whitespace-only input. When an empty string is passed, 
-`split()` returns `[]` and downstream count calculation divides by zero.
+The `token_counter.py` module calls `split()` on the input string...
 
 **Affected Area:**
 `common/token_counter.py` — `count_tokens()` function
 
 **Suggested Fix:**
-Add input guard at the top of `count_tokens()`:
-```python
-if not input_text or not input_text.strip():
-    return 0
-```
+Add input guard...
 
 **Test Cases to Add:**
-1. `test_count_tokens_empty_string` — assert `count_tokens("") == 0`
-2. `test_count_tokens_whitespace_only` — assert `count_tokens("   ") == 0`
-3. `test_count_tokens_none_input` — handle TypeError or return 0
+1. `test_count_tokens_empty_string`
+
+</details>
+
+---
+*Generated by GitHub Issue Reporter Agent*
+```
+
+#### Auto-Analyze Mode: Batch Process Recent Issues
+
+```powershell
+# Analyze all issues opened in the last 24 hours
+python src\main.py --auto-analyze
+```
+
+**What it does:**
+1. Fetches all issues opened in the last 24 hours
+2. For each issue:
+   - Checks if it already has a bot recommendation (skips if yes)
+   - Analyzes the issue with AI
+   - Posts recommendation as a GitHub comment
+3. Prints summary report
+
+**Example Output:**
+
+```markdown
+📊 Found 3 issues opened in the last 24 hours
+
+--- Issue #100: Add streaming support ---
+✅ Posted recommendation for issue #100
+
+--- Issue #99: Fix memory leak ---
+✅ Posted recommendation for issue #99
+
+--- Issue #98: Update docs ---
+ℹ️  Skipping: Issue #98 already has a bot recommendation
+
+================================================================================
+**Auto-Analysis Summary**
+
+Total issues found (last 24h): 3
+Issues processed: 3
+Recommendations posted: 2
+Skipped (already analyzed): 1
 ================================================================================
 ```
+
+#### Auto-Analyze with Dry Run (Preview Mode)
+
+```powershell
+# Preview what would be analyzed without posting
+python src\main.py --auto-analyze --dry-run
+```
+
+**Example Output:**
+
+```markdown
+🔍 DRY RUN MODE: No comments will be posted to GitHub
+
+📊 Found 3 issues opened in the last 24 hours
+
+--- Issue #100: Add streaming support ---
+🔍 DRY RUN: Would analyze and post recommendation for issue #100
+
+--- Issue #99: Fix memory leak ---
+🔍 DRY RUN: Would analyze and post recommendation for issue #99
+
+================================================================================
+**Auto-Analysis Summary**
+
+Total issues found (last 24h): 3
+Issues processed: 3
+Would analyze: 2
+Skipped (already analyzed): 1
+================================================================================
+```
+
+#### Limit Number of Issues Processed
+
+```powershell
+# Process maximum of 10 issues (default is 100)
+python src\main.py --auto-analyze --max-issues 10
+```
+
+**Use case:** Prevent rate limiting or excessive LLM costs in very active repositories.
 
 ### Advanced Usage
 
@@ -405,11 +581,94 @@ This will show:
 
 #### Output Redirection
 
-Save report to a file:
+Save report to a file (report mode only):
 
 ```powershell
 python src\main.py --report > issue_report_$(Get-Date -Format 'yyyy-MM-dd').md
 ```
+
+**Note:** `--issue` and `--auto-analyze` modes post to GitHub, not stdout.
+
+### Scheduled Automation
+
+#### Windows Task Scheduler
+
+Run auto-analyze daily at 9 AM:
+
+1. Open Task Scheduler: `taskschd.msc`
+2. Create Task:
+   - **Name:** GitHub Issue Auto-Analyzer
+   - **Trigger:** Daily at 9:00 AM
+   - **Action:** Start a program
+     - **Program:** `path\to\.venv\Scripts\python.exe`
+     - **Arguments:** `src\main.py --auto-analyze`
+     - **Start in:** `path\to\04_github_issue_reporter`
+
+#### Linux/Mac Cron
+
+Edit crontab:
+
+```bash
+crontab -e
+```
+
+Add line (runs daily at 9 AM):
+
+```
+0 9 * * * cd /path/to/04_github_issue_reporter && .venv/bin/python src/main.py --auto-analyze
+```
+
+#### GitHub Actions Workflow
+
+Create `.github/workflows/auto-analyze-issues.yml` in your repository:
+
+```yaml
+name: Auto-Analyze New Issues
+
+on:
+  schedule:
+    - cron: '0 9 * * *'  # Daily at 9 AM UTC
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: vibhatsrivastava/Agentic_AI_Development_Framework
+      
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      
+      - name: Install dependencies
+        run: |
+          pip install uv
+          cd projects/04_github_issue_reporter
+          uv venv .venv
+          source .venv/bin/activate
+          uv pip install -r requirements.txt
+          uv pip install -e ../../common
+      
+      - name: Run auto-analyze
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_REPO_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPO_NAME: ${{ github.event.repository.name }}
+          OLLAMA_BASE_URL: ${{ secrets.OLLAMA_BASE_URL }}
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+          OLLAMA_MODEL: llama3.2:3b
+        run: |
+          cd projects/04_github_issue_reporter
+          source .venv/bin/activate
+          python src/main.py --auto-analyze
+```
+
+**Required Secrets:**
+- `GH_TOKEN` — GitHub PAT with `repo` scope
+- `OLLAMA_BASE_URL` — Remote Ollama server URL
+- `OLLAMA_API_KEY` — Ollama Bearer token (if required)
 
 ---
 
