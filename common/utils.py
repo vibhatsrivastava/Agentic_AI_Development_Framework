@@ -101,3 +101,26 @@ def require_env(key: str) -> str:
             f"Copy .env.example to .env and fill in the value."
         )
     return value
+
+
+def load_env_from_dict(env_dict: dict[str, str]) -> None:
+    """
+    Load environment variables from a dictionary.
+    
+    This is useful for programmatically injecting configuration values
+    (e.g., from AWX credentials) as environment variables before agent execution.
+    
+    Args:
+        env_dict: Dictionary of environment variable key-value pairs
+        
+    Example:
+        awx_creds = {
+            'OLLAMA_BASE_URL': 'http://ollama:11434',
+            'OLLAMA_API_KEY': 'token123',
+        }
+        load_env_from_dict(awx_creds)
+        # Now os.getenv('OLLAMA_BASE_URL') returns 'http://ollama:11434'
+    """
+    for key, value in env_dict.items():
+        if value is not None:
+            os.environ[key] = str(value)

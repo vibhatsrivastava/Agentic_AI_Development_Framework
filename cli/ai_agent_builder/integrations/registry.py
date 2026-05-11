@@ -115,6 +115,10 @@ def _load_builtin_integrations() -> None:
     from .observability.langfuse import LangfuseIntegration
     register_integration(LangfuseIntegration())
 
+    # Orchestration
+    from .orchestration.awx import AwxIntegration
+    register_integration(AwxIntegration())
+
     # Document loaders (future implementation)
     # from .loaders.pdf import PDFLoaderIntegration
     # from .loaders.web import WebScraperIntegration

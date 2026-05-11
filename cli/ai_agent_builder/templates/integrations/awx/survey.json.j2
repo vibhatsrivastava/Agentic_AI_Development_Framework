@@ -1,0 +1,63 @@
+{
+  "name": "{{ project_name }} Agent Parameters",
+  "description": "Configure parameters for {{ project_name }} agent execution",
+  "spec": [
+{%- if 'weather' in project_name.lower() %}
+    {
+      "question_name": "City",
+      "question_description": "City name for weather report",
+      "required": true,
+      "type": "text",
+      "variable": "city",
+      "min": 2,
+      "max": 100,
+      "default": "London"
+    },
+{%- elif 'github' in project_name.lower() %}
+    {
+      "question_name": "GitHub Repository",
+      "question_description": "Repository in format 'owner/repo'",
+      "required": true,
+      "type": "text",
+      "variable": "github_repo",
+      "min": 3,
+      "max": 200,
+      "default": "owner/repo"
+    },
+    {
+      "question_name": "Issue Number",
+      "question_description": "GitHub issue number (leave empty for report mode)",
+      "required": false,
+      "type": "integer",
+      "variable": "github_issue_number",
+      "min": 0,
+      "default": ""
+    },
+{%- else %}
+    {
+      "question_name": "Custom Parameter 1",
+      "question_description": "Description of parameter 1",
+      "required": true,
+      "type": "text",
+      "variable": "custom_param_1",
+      "min": 1,
+      "max": 100,
+      "default": ""
+    },
+{%- endif %}
+    {
+      "question_name": "Log Level",
+      "question_description": "Logging verbosity",
+      "required": false,
+      "type": "multiplechoice",
+      "variable": "log_level",
+      "choices": [
+        "DEBUG",
+        "INFO",
+        "WARNING",
+        "ERROR"
+      ],
+      "default": "INFO"
+    }
+  ]
+}

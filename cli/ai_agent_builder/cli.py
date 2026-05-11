@@ -211,7 +211,7 @@ def integrations():
 @click.option(
     "--category",
     "-c",
-    type=click.Choice(["vector_store", "cache", "observability", "loader"]),
+    type=click.Choice(["vector_store", "cache", "observability", "loader", "orchestration"]),
     help="Filter by category"
 )
 def list_integrations_cmd(category: Optional[str]):

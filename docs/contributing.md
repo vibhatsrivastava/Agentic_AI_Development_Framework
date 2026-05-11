@@ -148,3 +148,135 @@ After adding your project, add a row to the **Projects** table in the root [READ
 - [ ] Root `README.md` projects table is updated
 - [ ] No `.env` file committed (confirm with `git status`)
 - [ ] No API keys or secrets hardcoded in source files
+
+---
+
+## AWX Integration Pattern
+
+Projects that need to be scheduled or triggered via Ansible AWX should follow these conventions:
+
+### Enabling AWX Integration
+
+Use the `--integrations awx` flag when creating a project:
+
+```bash
+ai-agent-builder new-project 05_my_agent --arch langgraph --integrations awx
+```
+
+This automatically scaffolds:
+- `awx/playbook.yml` — Ansible playbook for this agent
+- `awx/survey.json` — AWX survey specification with agent parameters
+- `awx/credentials.yml` — Custom AWX credential type definitions
+- `awx/README.md` — Detailed AWX setup instructions
+
+### Agent Compatibility Requirements
+
+Agents designed for AWX execution must support parameter input via **environment variables** (in addition to CLI arguments):
+
+```python
+# ❌ CLI-only (not AWX-compatible)
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--city", required=True)
+    args = parser.parse_args()
+    city = args.city
+
+# ✅ AWX-compatible (env var fallback)
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--city", default=os.getenv("CITY"))
+    args = parser.parse_args()
+    city = args.city or require_env("CITY")
+```
+
+**Why**: AWX injects survey responses and credentials as environment variables, not CLI arguments.
+
+### AWX Wrapper Integration
+
+The `common.awx_wrapper` module provides a unified entry point for AWX to invoke agents:
+
+```python
+# AWX playbook calls:
+python -m common.awx_wrapper <project_name>
+
+# Wrapper automatically:
+# 1. Extracts parameters from environment variables
+# 2. Loads and executes agent's main() function
+# 3. Formats output as JSON for AWX parsing
+```
+
+Agents must define a `main()` or `run()` function that can be called without arguments:
+
+```python
+def main():
+    """Agent entry point (called by AWX wrapper)."""
+    # Read parameters from environment variables
+    city = os.getenv("CITY", "London")
+    
+    # Execute agent logic
+    result = execute_weather_query(city)
+    
+    # Return result (wrapper handles JSON formatting)
+    return result
+```
+
+### Survey Customization
+
+The generated `awx/survey.json` includes common parameters. Customize for agent-specific needs:
+
+```json
+{
+  "name": "My Agent Parameters",
+  "spec": [
+    {
+      "question_name": "Custom Parameter",
+      "variable": "custom_param",
+      "type": "text",
+      "required": true
+    }
+  ]
+}
+```
+
+Then update `awx/playbook.yml` to pass the parameter:
+
+```yaml
+agent_env:
+  CUSTOM_PARAM: "{{ '{{' }} custom_param | default('') {{ '}}' }}"
+```
+
+### Testing AWX Playbooks Locally
+
+Test playbooks without AWX before deployment:
+
+```bash
+# Install Ansible (if not already installed)
+pip install ansible
+
+# Run playbook with test parameters
+cd projects/05_my_agent
+ansible-playbook awx/playbook.yml \
+  --extra-vars "city=London log_level=DEBUG" \
+  --extra-vars "ollama_base_url=http://localhost:11434" \
+  --extra-vars "ollama_api_key="
+```
+
+### AWX Integration Checklist
+
+- [ ] Agent supports environment variable parameter input
+- [ ] Agent defines `main()` or `run()` function
+- [ ] `awx/` directory scaffolded with all required files
+- [ ] `awx/survey.json` customized for agent parameters
+- [ ] `awx/playbook.yml` tested locally with `ansible-playbook`
+- [ ] `awx/credentials.yml` includes all required credential types
+- [ ] Project README includes AWX usage section
+
+### Best Practices
+
+1. **Backward Compatibility**: Keep CLI argument support — agents should work standalone AND via AWX
+2. **Parameter Defaults**: Provide sensible defaults in code (not just AWX survey defaults)
+3. **Error Handling**: Return structured errors — AWX wrapper formats them as JSON
+4. **Logging**: Use `LOG_LEVEL` env var (AWX can control verbosity per run)
+5. **Idempotency**: Design agents to be safely re-runnable (for AWX retry scenarios)
+
+See [AWX integration documentation](../cli/ai_agent_builder/integrations/orchestration/awx.py) for complete details.

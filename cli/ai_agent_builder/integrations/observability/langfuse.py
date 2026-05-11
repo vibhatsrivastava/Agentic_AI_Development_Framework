@@ -18,7 +18,7 @@ requires no scaffolding or integration selection.
 - Advanced callback configuration
 
 For basic tracing, simply configure root `.env` — no integration needed.
-
+"""
 
 from typing import Dict, List, Optional, Tuple
 

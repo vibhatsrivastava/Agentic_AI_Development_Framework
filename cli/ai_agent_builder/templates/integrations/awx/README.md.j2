@@ -1,0 +1,326 @@
+# AWX Setup Guide for {{ project_name }}
+
+This guide walks through setting up Ansible AWX to schedule and trigger the **{{ project_name }}** agent.
+
+---
+
+## Prerequisites
+
+- Ansible AWX instance (version 21.0+) with admin or project management access
+- This repository accessible to AWX (Git, manual upload, or network share)
+- Network connectivity from AWX execution nodes to Ollama server
+- (Optional) Langfuse server for observability
+
+---
+
+## Setup Steps
+
+### 1. Import Custom Credential Types
+
+AWX requires custom credential types to inject secrets securely. Import the definitions from `awx/credentials.yml`:
+
+1. Navigate to **Settings → Credential Types** in AWX UI
+2. Click **Add** to create new credential type
+3. Copy YAML from `awx/credentials.yml` for each credential type:
+   - **Ollama API Credentials** (required)
+   - **Langfuse Observability Credentials** (optional)
+{%- if 'github' in project_name.lower() %}
+   - **GitHub API Credentials** (required for GitHub agent)
+{%- endif %}
+4. Paste YAML into AWX form (Name, Description, Inputs, Injectors)
+5. Save each credential type
+
+**Tip**: Use AWX CLI/API for bulk import:
+```bash
+awx credential_types create --name "Ollama API Credentials" --inputs @awx/credentials.yml ...
+```
+
+---
+
+### 2. Create Credentials
+
+Create credential instances using the imported types:
+
+1. Navigate to **Resources → Credentials** in AWX UI
+2. Click **Add** for each required credential:
+   
+   **Ollama API Credentials**:
+   - Name: `Ollama Server - Production`
+   - Credential Type: `Ollama API Credentials`
+   - Ollama Base URL: `http://your-ollama-server:11434`
+   - Ollama API Key: `your_bearer_token` (leave empty for local/unauthenticated)
+   - Default Model: `gpt-oss:20b`
+   
+   **Langfuse Observability Credentials** (optional):
+   - Name: `Langfuse Production`
+   - Credential Type: `Langfuse Observability Credentials`
+   - Enable Langfuse: `true`
+   - Langfuse Public Key: `pk-lf-...` (from Langfuse dashboard)
+   - Langfuse Secret Key: `sk-lf-...` (from Langfuse dashboard)
+   - Langfuse Host: `http://your-langfuse-server:3000`
+{%- if 'github' in project_name.lower() %}
+   
+   **GitHub API Credentials**:
+   - Name: `GitHub Bot Token`
+   - Credential Type: `GitHub API Credentials`
+   - GitHub Token: `ghp_...` (personal access token with `repo` scope)
+{%- endif %}
+
+3. Save each credential
+
+---
+
+### 3. Create AWX Project
+
+Point AWX to this repository:
+
+**Option A: Git SCM Sync** (recommended):
+1. Navigate to **Resources → Projects**
+2. Click **Add**
+3. Configure:
+   - Name: `AI Agents Repository`
+   - Organization: (your organization)
+   - Source Control Type: `Git`
+   - Source Control URL: `https://github.com/your-org/Agentic_AI_Development_Framework.git`
+   - Source Control Branch: `main` (or your target branch)
+   - Update options: Check "Update on launch" for auto-sync
+4. Save and sync project
+
+**Option B: Manual Project** (for local testing):
+1. Place repository on AWX execution node filesystem
+2. Create project pointing to local path: `/path/to/Agentic_AI_Development_Framework`
+
+---
+
+### 4. Create Job Template
+
+Create a job template for this agent:
+
+1. Navigate to **Resources → Templates**
+2. Click **Add → Add job template**
+3. Configure:
+   
+   **Details**:
+   - Name: `{{ project_name }} Agent`
+   - Job Type: `Run`
+   - Inventory: `localhost` (or your execution inventory)
+   - Project: `AI Agents Repository` (from step 3)
+   - Playbook: `projects/{{ project_name }}/awx/playbook.yml`
+   - Credentials: 
+     - Add `Ollama Server - Production`
+     - Add `Langfuse Production` (optional)
+{%- if 'github' in project_name.lower() %}
+     - Add `GitHub Bot Token`
+{%- endif %}
+   
+   **Options**:
+   - Check "Prompt on launch" for credentials (allows per-run override)
+   - Check "Enable concurrent jobs" if multiple runs should be allowed
+   
+   **Advanced**:
+   - Timeout: `600` seconds (adjust for long-running agents)
+   - Verbosity: `1 (Verbose)` for debugging
+
+4. Save template
+
+---
+
+### 5. Attach Survey
+
+Attach the survey specification to enable UI parameter input:
+
+1. In the job template from step 4, click **Survey** tab
+2. Click **Add**
+3. Import survey from `awx/survey.json`:
+   - Copy JSON content from `awx/survey.json`
+   - Paste into AWX survey form (or use AWX API)
+4. Save survey
+5. Toggle **Survey Enabled** to ON
+
+**Tip**: AWX UI may require entering survey questions manually. Alternatively, use AWX CLI:
+```bash
+awx job_templates survey create <template_id> @awx/survey.json
+```
+
+---
+
+### 6. Test Execution
+
+Verify the setup with a manual test run:
+
+1. Navigate to **Resources → Templates**
+2. Click launch icon (rocket) for `{{ project_name }} Agent` template
+3. Survey prompt appears → fill in parameters:
+{%- if 'weather' in project_name.lower() %}
+   - City: `London` (or your test city)
+{%- elif 'github' in project_name.lower() %}
+   - GitHub Repository: `owner/repo`
+   - Issue Number: (leave empty for report mode, or enter issue ID)
+{%- else %}
+   - (Fill in agent-specific parameters)
+{%- endif %}
+   - Log Level: `INFO`
+4. Click **Launch**
+5. Monitor job output in real-time
+6. Verify:
+   - Agent executes successfully (green status)
+   - Output contains JSON result with `status: success`
+   - Langfuse dashboard shows trace (if observability enabled)
+
+---
+
+### 7. Configure Schedule (Optional)
+
+For periodic agent execution:
+
+1. In the job template, click **Schedules** tab
+2. Click **Add**
+3. Configure:
+   - Name: `{{ project_name }} Daily Run`
+   - Start Date/Time: (when to start)
+   - Local Time Zone: (your timezone)
+   - Repeat Frequency: Select schedule type:
+     - **Run every N minutes/hours/days/weeks**
+     - **Custom cron expression** (advanced)
+   - Example: Run daily at 9:00 AM → `0 9 * * *`
+4. Save schedule
+
+Schedule will trigger job automatically based on frequency.
+
+---
+
+## Usage Patterns
+
+### Manual Execution
+- Launch via AWX UI → **Resources → Templates → Launch**
+- Survey prompts for parameters
+- View results in job output log
+
+### Scheduled Execution
+- Configure schedule (step 7)
+- Jobs run automatically based on cron expression
+- View history in **Jobs** tab
+
+### Webhook Trigger
+- Generate webhook URL: **Job Template → Actions → Enable Webhook**
+- Copy webhook URL and key
+- External systems POST to webhook URL with survey parameters:
+  ```bash
+  curl -X POST https://awx-server/api/v2/job_templates/123/webhook/ \
+    -H "Content-Type: application/json" \
+    -d '{"extra_vars": {"city": "Paris", "log_level": "DEBUG"}}'
+  ```
+
+### API Trigger
+- Use AWX REST API for programmatic job launch:
+  ```bash
+  awx job_templates launch <template_id> \
+    --extra_vars '{"city": "Berlin", "log_level": "INFO"}'
+  ```
+
+### Workflow Integration
+- Create AWX workflow templates to chain multiple agents
+- Example: Weather agent → GitHub issue creator (log results as issue)
+- Use `{{ project_name | replace('-', '_') }}_result` fact from playbook in downstream tasks
+
+---
+
+## Troubleshooting
+
+### Job Fails: "Virtual environment not found"
+- **Cause**: Project venv not initialized on AWX execution node
+- **Fix**: Run setup on execution node:
+  ```bash
+  cd /path/to/projects/{{ project_name }}
+  uv venv .venv
+  .venv/Scripts/activate  # Windows
+  # source .venv/bin/activate  # Linux/Mac
+  uv pip install -r requirements.txt
+  uv pip install -e ../../common
+  ```
+
+### Job Fails: "Module 'common.awx_wrapper' not found"
+- **Cause**: Common package not installed in project venv
+- **Fix**: Install common package:
+  ```bash
+  cd /path/to/Agentic_AI_Development_Framework
+  .venv/Scripts/activate
+  uv pip install -e ./common
+  ```
+
+### Agent Execution Succeeds but No Output
+- **Cause**: Agent output not JSON formatted or wrapper not invoked correctly
+- **Fix**: Check playbook calls `common.awx_wrapper` module correctly
+- **Debug**: Run playbook locally with `-vvv` verbosity:
+  ```bash
+  ansible-playbook awx/playbook.yml -vvv \
+    --extra-vars "city=London log_level=DEBUG"
+  ```
+
+### Credentials Not Injected
+- **Cause**: Credential type not properly configured or not attached to job template
+- **Fix**: 
+  1. Verify credential type "Injectors" section maps to environment variables
+  2. Verify credential is attached to job template
+  3. Check job output (verbose) for environment variables
+
+### Ollama Connection Fails
+- **Cause**: AWX execution node cannot reach Ollama server
+- **Fix**: 
+  1. Verify network connectivity: `ping ollama-server`
+  2. Test Ollama API: `curl http://ollama-server:11434/api/tags`
+  3. Check firewall rules between AWX and Ollama
+
+### Langfuse Traces Not Appearing
+- **Cause**: Langfuse credentials incorrect or server unreachable
+- **Fix**:
+  1. Verify Langfuse keys in AWX credential
+  2. Test Langfuse connectivity from AWX node
+  3. Check Langfuse project exists and keys are valid
+  4. Set `LANGFUSE_ENABLED=false` in credential to disable temporarily
+
+---
+
+## Advanced Configuration
+
+### Multi-Environment Setup
+Create separate credentials for dev/staging/prod environments:
+- Ollama Dev, Ollama Staging, Ollama Production
+- Use inventories to target different execution nodes per environment
+
+### Notification Handlers
+Configure AWX notifications for job failures:
+1. **Administration → Notifications** → Create notification templates
+2. Attach to job template: **Notifications** tab → Add (on failure/success)
+3. Supported: Email, Slack, Webhook, PagerDuty, etc.
+
+### Custom Execution Environment
+Build custom AWX execution environment with pre-installed dependencies:
+```dockerfile
+# execution-environment.yml
+version: 1
+dependencies:
+  python: requirements.txt  # Include project requirements
+  system: |
+    git
+```
+Build with ansible-builder and use in job template.
+
+---
+
+## Files Reference
+
+- `awx/playbook.yml` — Ansible playbook for this agent (do not edit directly; regenerate via CLI)
+- `awx/survey.json` — Survey specification (can be manually edited for custom parameters)
+- `awx/credentials.yml` — Credential type definitions (import once, reuse across projects)
+- `awx/README.md` — This file
+
+---
+
+## Support
+
+For issues or questions:
+- Framework documentation: `docs/` directory in repository root
+- AWX documentation: https://docs.ansible.com/automation-controller/
+- Common package: `common/awx_wrapper.py` for agent invocation logic
+

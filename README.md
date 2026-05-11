@@ -28,7 +28,7 @@ A curated **monorepo** of Agentic AI applications built with [LangChain](https:/
 
 - **🚀 SDK Scaffolding** — Generate production-ready projects in <2 minutes with `ai-agent-builder` CLI
 - **🏭 Shared Architecture** — Reusable LLM factory, prompts, utilities across all projects
-- **🔌 Composable Integrations** — Mix-and-match vector stores (pgvector, Chroma, FAISS), caching (Redis), observability (Langfuse)
+- **🔌 Composable Integrations** — Mix-and-match vector stores (pgvector, Chroma, FAISS), caching (Redis), observability (Langfuse), orchestration (Ansible AWX)
 - **🧪 Built-in Testing** — Pre-configured pytest fixtures, mocked LLMs, 90% coverage templates
 - **🔐 Enterprise-Ready** — Optional Vault integration, rate limiting, retry logic, token counting
 - **📚 Learning Resources** — Quick-reference guides for Agentic AI, ReAct patterns, RAG pipelines
@@ -85,7 +85,7 @@ python src/main.py
 - ✅ Installs `requirements-base.txt` (shared base dependencies)
 - ✅ Installs `common/` as an editable package (`ai-agent-common`)
 - ✅ Generates LCEL/LangGraph/Custom architecture from templates
-- ✅ Generates integration code (pgvector, Redis, Langfuse, Chroma, FAISS)
+- ✅ Generates integration code (pgvector, Redis, Langfuse, Chroma, FAISS, AWX)
 - ✅ Generates test fixtures with 90% coverage template
 - ✅ Generates `.env.example` with all required variables
 - ✅ Generates README with setup instructions
