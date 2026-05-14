@@ -11,6 +11,7 @@ Tests cover:
 import pytest
 import json
 import os
+import sys
 import tempfile
 from unittest.mock import Mock, patch
 from src.main import (
@@ -18,6 +19,15 @@ from src.main import (
     get_repo_token,
     list_open_issues,
 )
+
+
+def test_module_imports():
+    """Test that the module imports successfully."""
+    # This test ensures the module-level code is executed, including sys.path manipulation
+    import src.main
+    assert hasattr(src.main, 'load_repos_config')
+    assert hasattr(src.main, 'get_repo_token')
+    assert hasattr(src.main, 'main')
 
 
 class TestReposConfigLoading:
@@ -231,3 +241,37 @@ class TestMultiRepoExample:
         assert token1 == "ghp_shared_token"  # Repo 1 uses default
         assert token2 == "ghp_shared_token"  # Repo 2 uses default
         assert token3 == "ghp_other_token"   # Repo 3 uses per-repo token
+
+
+class TestHelperFunctions:
+    """Tests for single-repo processing helper functions."""
+
+    def test_process_single_repo_report(self, mock_github_api, mock_env, sample_github_issues, capsys):
+        """Test process_single_repo_report helper function."""
+        from src.main import process_single_repo_report
+        
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = sample_github_issues
+        mock_github_api.return_value = mock_response
+
+        process_single_repo_report("testowner", "testrepo", "test_token")
+        
+        captured = capsys.readouterr()
+        assert "Open Issues Report" in captured.out
+        assert "testowner/testrepo" in captured.out or "2" in captured.out  # Check for output
+
+    def test_process_single_repo_report_error(self, mock_github_api, mock_env, capsys):
+        """Test process_single_repo_report handles errors gracefully."""
+        from src.main import process_single_repo_report
+        
+        mock_response = Mock()
+        mock_response.status_code = 404
+        mock_response.reason = "Not Found"
+        mock_response.raise_for_status.side_effect = Exception("404 Error")
+        mock_github_api.return_value = mock_response
+
+        process_single_repo_report("invalid", "invalid", "test_token")
+        
+        captured = capsys.readouterr()
+        assert "Report generation failed" in captured.out or "❌" in captured.out
