@@ -580,6 +580,23 @@ def build_agent():
     )
 
 
+def is_valid_github_issue_url(url: str) -> bool:
+    """
+    Validate that a URL is a properly formed GitHub issue URL.
+    
+    Args:
+        url: URL string to validate
+    
+    Returns:
+        True if URL is a valid GitHub issue URL, False otherwise
+    """
+    import re
+    # Match URLs like: https://github.com/owner/repo/issues/123
+    # This prevents substring matching vulnerabilities
+    pattern = r'^https://github\.com/[^/]+/[^/]+/issues/\d+.*$'
+    return bool(re.match(pattern, url))
+
+
 def format_report(issues_data: dict) -> str:
     """
     Format issues data into a markdown table report.
@@ -803,8 +820,8 @@ def process_single_repo_auto_analyze(owner: str, repo: str, token: str, dry_run:
                 
                 answer = agent_result["messages"][-1].content
                 print(f"✅ Posted recommendation for issue #{issue_num}")
-                # Check if the response contains a GitHub issue URL
-                if "github.com" in answer and "/issues/" in answer and answer.startswith("https://github.com/"):
+                # Check if the response contains a valid GitHub issue URL
+                if is_valid_github_issue_url(answer):
                     print(f"   {answer}")
                 
                 analyzed += 1
