@@ -1,0 +1,46 @@
+# CODEOWNERS File
+# Define code ownership and review requirements for this repository
+#
+# Documentation: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# Pattern syntax:
+# - Lines starting with # are comments
+# - Each line is a file pattern followed by one or more owners
+# - Owners can be usernames, email addresses, or team names (@org/team-name)
+# - Later matches take precedence over earlier ones
+#
+# When a pull request changes any of the specified files, the listed owners
+# will be automatically requested for review.
+
+# Default owners for everything in the repo
+# These users will be requested for review when someone opens a pull request
+* @vibhatsrivastava
+
+# GitHub Actions workflows and CI/CD configuration
+/.github/ @vibhatsrivastava
+/.github/workflows/ @vibhatsrivastava
+
+# Core common utilities shared across all projects
+/common/ @vibhatsrivastava
+
+# CLI tool for scaffolding projects
+/cli/ @vibhatsrivastava
+
+# Documentation
+/docs/ @vibhatsrivastava
+/Quick-Reference/ @vibhatsrivastava
+/planner/ @vibhatsrivastava
+
+# Root configuration files
+/.env.example @vibhatsrivastava
+/requirements-base.txt @vibhatsrivastava
+/pytest.ini @vibhatsrivastava
+/.coveragerc @vibhatsrivastava
+/conftest.py @vibhatsrivastava
+
+# Individual projects (can be customized per project)
+/projects/ @vibhatsrivastava
+
+# Specific project overrides (add as needed)
+# /projects/01_hello_langchain/ @vibhatsrivastava @another-owner
+# /projects/04_github_issue_reporter/ @vibhatsrivastava @security-team

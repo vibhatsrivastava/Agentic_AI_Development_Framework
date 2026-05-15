@@ -1,0 +1,284 @@
+name: Deploy
+
+# Deployment pipeline with environment protection and manual approvals
+on:
+  push:
+    branches:
+      - dev
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      ref:
+        description: 'Branch/tag to deploy'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+  packages: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  build:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-base.txt
+          pip install -e ./common
+      
+      - name: Install project dependencies
+        run: |
+          echo "Installing dependencies for all projects..."
+          for project_dir in projects/*/; do
+            if [ -f "$project_dir/requirements.txt" ]; then
+              echo "Installing ${project_dir}requirements.txt"
+              pip install -r "$project_dir/requirements.txt"
+            fi
+          done
+      
+      - name: Run linter
+        run: |
+          pip install ruff
+          ruff check . --output-format=github
+        continue-on-error: true
+      
+      - name: Run tests with coverage
+        run: |
+          pytest -m "not integration" --cov --cov-report=term --cov-report=xml --cov-fail-under=75
+      
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+      
+      - name: Build status check
+        run: |
+          echo "✅ Build and tests completed successfully"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit: ${{ github.sha }}"
+  
+  deploy-staging:
+    name: Deploy to Staging
+    needs: build
+    runs-on: ubuntu-latest
+    # Auto-deploy to staging from dev branch
+    if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
+    environment:
+      name: staging
+      url: https://staging.example.com
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Deploy to staging
+        run: |
+          echo "🚀 Deploying to staging environment..."
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit: ${{ github.sha }}"
+          
+          # Add your staging deployment commands here
+          # Examples:
+          # - Deploy to staging server
+          # - Update staging Docker containers
+          # - Run database migrations
+          # - Smoke tests
+          
+          echo "✅ Deployment to staging complete"
+      
+      - name: Post deployment status
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const status = '${{ job.status }}' === 'success' ? '✅ Success' : '❌ Failed';
+            
+            // Find related PR or create issue comment
+            const commits = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: context.sha
+            });
+            
+            if (commits.data.length > 0) {
+              const pr = commits.data[0];
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                body: `## 🚀 Staging Deployment ${status}
+                
+                **Environment:** Staging
+                **Branch:** \`${context.ref.replace('refs/heads/', '')}\`
+                **Commit:** \`${context.sha.substring(0, 7)}\`
+                **Deployed at:** ${new Date().toISOString()}
+                
+                ${status === '✅ Success' ? '✅ Successfully deployed to staging environment.' : '❌ Deployment failed. Check the workflow logs for details.'}
+                `
+              });
+            }
+  
+  deploy-production:
+    name: Deploy to Production
+    needs: build
+    runs-on: ubuntu-latest
+    # Only deploy to production from main branch with manual approval
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    environment:
+      name: production
+      url: https://production.example.com
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Wait for manual approval
+        run: |
+          echo "⏳ Waiting for manual approval from CODEOWNERS..."
+          echo "This deployment requires approval in the GitHub UI"
+          echo "Navigate to: Actions → This workflow run → Review deployments"
+      
+      - name: Deploy to production
+        run: |
+          echo "🚀 Deploying to production environment..."
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit: ${{ github.sha }}"
+          
+          # Add your production deployment commands here
+          # Examples:
+          # - Deploy to production servers
+          # - Update production Docker containers
+          # - Run database migrations
+          # - Smoke tests
+          # - Health checks
+          
+          echo "✅ Deployment to production complete"
+      
+      - name: Create deployment tag
+        run: |
+          # Create a deployment tag for tracking
+          TAG_NAME="deploy-$(date +%Y%m%d-%H%M%S)"
+          git tag -a "$TAG_NAME" -m "Production deployment from ${{ github.sha }}"
+          git push origin "$TAG_NAME" || echo "Could not push tag (expected in CI)"
+      
+      - name: Post deployment status
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const status = '${{ job.status }}' === 'success' ? '✅ Success' : '❌ Failed';
+            
+            // Find related PR or create issue comment
+            const commits = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: context.sha
+            });
+            
+            if (commits.data.length > 0) {
+              const pr = commits.data[0];
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                body: `## 🚀 Production Deployment ${status}
+                
+                **Environment:** Production
+                **Branch:** \`${context.ref.replace('refs/heads/', '')}\`
+                **Commit:** \`${context.sha.substring(0, 7)}\`
+                **Deployed at:** ${new Date().toISOString()}
+                **Approved by:** @${{ github.actor }}
+                
+                ${status === '✅ Success' ? '✅ Successfully deployed to production environment.' : '❌ Deployment failed. Check the workflow logs for details.'}
+                
+                ---
+                
+                🔒 *This deployment was approved by CODEOWNERS*
+                `
+              });
+            }
+      
+      - name: Notify deployment complete
+        if: success()
+        run: |
+          echo "✅ Production deployment completed successfully"
+          echo "Deployed commit: ${{ github.sha }}"
+          echo "Deployed by: ${{ github.actor }}"
+
+  # Manual deployment workflow
+  manual-deploy:
+    name: Manual Deployment
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    environment:
+      name: ${{ inputs.environment }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      
+      - name: Validate deployment
+        run: |
+          echo "🔍 Validating deployment..."
+          echo "Environment: ${{ inputs.environment }}"
+          echo "Branch/Ref: ${{ inputs.ref || github.ref }}"
+          echo "Triggered by: ${{ github.actor }}"
+      
+      - name: Deploy
+        run: |
+          echo "🚀 Deploying to ${{ inputs.environment }}..."
+          
+          # Add environment-specific deployment logic
+          if [ "${{ inputs.environment }}" = "production" ]; then
+            echo "⚠️ Deploying to PRODUCTION - manual approval required"
+          else
+            echo "Deploying to STAGING"
+          fi
+          
+          echo "✅ Deployment complete"
+      
+      - name: Post deployment notification
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.createCommitComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: context.sha,
+              body: `## 🚀 Manual Deployment
+              
+              **Environment:** ${{ inputs.environment }}
+              **Ref:** \`${{ inputs.ref || github.ref }}\`
+              **Triggered by:** @${{ github.actor }}
+              **Status:** ✅ Success
+              
+              Deployment completed at ${new Date().toISOString()}
+              `
+            });

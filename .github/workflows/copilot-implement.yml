@@ -1,0 +1,276 @@
+name: Copilot Auto-Implementation
+
+# Trigger when CODEOWNERS approve an issue for implementation
+# Commands: /implement-plan or /approved
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+  contents: write
+  pull-requests: write
+
+jobs:
+  validate-and-trigger:
+    name: Validate CODEOWNER and Trigger Implementation
+    runs-on: ubuntu-latest
+    
+    # Only run on issue comments (not PR comments)
+    if: github.event.issue.pull_request == null
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Check if commenter is CODEOWNER
+        id: check-codeowner
+        run: |
+          # Get the commenter's username
+          COMMENTER="${{ github.event.comment.user.login }}"
+          echo "Commenter: $COMMENTER"
+          
+          # Read CODEOWNERS file and extract usernames
+          if [ ! -f CODEOWNERS ]; then
+            echo "❌ CODEOWNERS file not found"
+            echo "is_codeowner=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          # Extract usernames from CODEOWNERS (matches @username pattern)
+          CODEOWNERS=$(grep -oP '@\K[a-zA-Z0-9_-]+' CODEOWNERS | sort -u)
+          echo "Code owners: $CODEOWNERS"
+          
+          # Check if commenter is in the list
+          if echo "$CODEOWNERS" | grep -q "^${COMMENTER}$"; then
+            echo "✅ $COMMENTER is a CODEOWNER"
+            echo "is_codeowner=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ $COMMENTER is NOT a CODEOWNER"
+            echo "is_codeowner=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Check for approval command
+        id: check-command
+        if: steps.check-codeowner.outputs.is_codeowner == 'true'
+        run: |
+          COMMENT_BODY="${{ github.event.comment.body }}"
+          echo "Comment body: $COMMENT_BODY"
+          
+          # Check for /implement-plan or /approved commands
+          if echo "$COMMENT_BODY" | grep -qiE '^/implement-plan|^/approved'; then
+            echo "✅ Valid command found"
+            echo "has_command=true" >> $GITHUB_OUTPUT
+            
+            # Extract optional parameters from comment
+            # Format: /implement-plan branch=feature-x model=gpt-oss:20b
+            BRANCH=$(echo "$COMMENT_BODY" | grep -oP 'branch=\K[^\s]+' || echo "")
+            MODEL=$(echo "$COMMENT_BODY" | grep -oP 'model=\K[^\s]+' || echo "")
+            
+            # Set defaults if not provided
+            BRANCH=${BRANCH:-"copilot/issue-${{ github.event.issue.number }}"}
+            MODEL=${MODEL:-"gpt-oss:20b"}
+            
+            echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+            echo "model=$MODEL" >> $GITHUB_OUTPUT
+            echo "Branch: $BRANCH"
+            echo "Model: $MODEL"
+          else
+            echo "❌ No valid command found"
+            echo "has_command=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Post validation failure comment
+        if: |
+          steps.check-codeowner.outputs.is_codeowner == 'false' &&
+          (contains(github.event.comment.body, '/implement-plan') || contains(github.event.comment.body, '/approved'))
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `❌ **Authorization Failed**
+              
+              @${{ github.event.comment.user.login }}, you are not authorized to trigger implementation.
+              
+              Only CODEOWNERS can use \`/implement-plan\` or \`/approved\` commands.
+              
+              **Current CODEOWNERS:**
+              ${require('fs').readFileSync('CODEOWNERS', 'utf8')
+                .split('\n')
+                .filter(line => line.includes('@') && !line.trim().startsWith('#'))
+                .map(line => line.trim())
+                .join('\n')}`
+            });
+      
+      - name: Collect issue context
+        id: collect-context
+        if: |
+          steps.check-codeowner.outputs.is_codeowner == 'true' &&
+          steps.check-command.outputs.has_command == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Fetch issue details
+            const issue = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number
+            });
+            
+            // Fetch all comments on the issue
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number
+            });
+            
+            // Build context for Copilot
+            const issueContext = {
+              title: issue.data.title,
+              body: issue.data.body,
+              number: issue.data.number,
+              labels: issue.data.labels.map(l => l.name),
+              comments: comments.data.map(c => ({
+                author: c.user.login,
+                body: c.body,
+                created_at: c.created_at
+              }))
+            };
+            
+            // Find the approval comment (last comment before triggering)
+            const approvalComment = comments.data[comments.data.length - 1];
+            
+            // Save to file for next step
+            const fs = require('fs');
+            fs.writeFileSync('issue-context.json', JSON.stringify(issueContext, null, 2));
+            
+            return issueContext;
+      
+      - name: Assign issue to copilot
+        if: |
+          steps.check-codeowner.outputs.is_codeowner == 'true' &&
+          steps.check-command.outputs.has_command == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Assign issue to copilot (or the bot user if different)
+            await github.rest.issues.addAssignees({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              assignees: ['copilot']  // GitHub Copilot's username
+            }).catch(err => {
+              console.log('Note: Could not assign to copilot user:', err.message);
+            });
+            
+            // Add label to track implementation status
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: ['copilot-implementing', 'approved']
+            }).catch(err => {
+              console.log('Note: Could not add labels:', err.message);
+            });
+      
+      - name: Post confirmation comment
+        if: |
+          steps.check-codeowner.outputs.is_codeowner == 'true' &&
+          steps.check-command.outputs.has_command == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const branch = '${{ steps.check-command.outputs.branch }}';
+            const model = '${{ steps.check-command.outputs.model }}';
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `✅ **Implementation Approved**
+              
+              @${{ github.event.comment.user.login }} has approved this issue for implementation.
+              
+              **Configuration:**
+              - 🌿 **Branch:** \`${branch}\`
+              - 🤖 **Model:** \`${model}\`
+              - 👤 **Approver:** @${{ github.event.comment.user.login }}
+              
+              **Next Steps:**
+              1. GitHub Copilot will analyze the issue and all comments
+              2. Implementation will be done on branch \`${branch}\`
+              3. A pull request will be created automatically
+              4. CODEOWNERS will be requested for review
+              
+              **Note:** All previous comments and context have been collected for implementation.
+              
+              ---
+              
+              🤖 *Triggering GitHub Copilot Workspace...*`
+            });
+      
+      - name: Trigger GitHub Copilot Workspace
+        if: |
+          steps.check-codeowner.outputs.is_codeowner == 'true' &&
+          steps.check-command.outputs.has_command == 'true'
+        uses: actions/github-script@v7
+        env:
+          BRANCH_NAME: ${{ steps.check-command.outputs.branch }}
+          MODEL_NAME: ${{ steps.check-command.outputs.model }}
+        with:
+          script: |
+            // Read issue context
+            const fs = require('fs');
+            const issueContext = JSON.parse(fs.readFileSync('issue-context.json', 'utf8'));
+            
+            // Prepare the prompt for Copilot
+            let prompt = `# Issue #${issueContext.number}: ${issueContext.title}\n\n`;
+            prompt += `${issueContext.body}\n\n`;
+            prompt += `## Comments and Feedback\n\n`;
+            
+            issueContext.comments.forEach((comment, idx) => {
+              prompt += `### Comment ${idx + 1} by @${comment.author}\n`;
+              prompt += `${comment.body}\n\n`;
+            });
+            
+            prompt += `\n## Implementation Instructions\n\n`;
+            prompt += `Please implement the solution described in this issue, taking into account:\n`;
+            prompt += `1. All comments and feedback provided above\n`;
+            prompt += `2. Any proposed changes or modifications suggested before approval\n`;
+            prompt += `3. Follow the repository's coding standards and conventions\n`;
+            prompt += `4. Create appropriate tests for your changes\n`;
+            prompt += `5. Update documentation as needed\n\n`;
+            prompt += `**Target Branch:** ${process.env.BRANCH_NAME}\n`;
+            prompt += `**LLM Model:** ${process.env.MODEL_NAME}\n`;
+            
+            // Create a new issue comment with the full context for manual triggering
+            // Note: Automatic Copilot Workspace triggering requires GitHub Copilot for Business
+            // This creates a formatted issue comment that can be used to manually trigger Copilot
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `## 🤖 Copilot Implementation Context
+              
+              <details>
+              <summary>Click to view full implementation context</summary>
+              
+              \`\`\`
+              ${prompt}
+              \`\`\`
+              
+              </details>
+              
+              **To implement:**
+              - Use GitHub Copilot Workspace on this issue
+              - Or manually create branch \`${process.env.BRANCH_NAME}\` and implement
+              - Reference this context when implementing
+              
+              ---
+              *Auto-generated by CI/CD Pipeline*`
+            });
+            
+            console.log('✅ Implementation context prepared and posted');
