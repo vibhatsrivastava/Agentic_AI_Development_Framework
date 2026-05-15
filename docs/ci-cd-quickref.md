@@ -37,6 +37,7 @@ Quick reference guide for using the CI/CD pipeline in the Agentic AI Development
 |----------|---------|---------|-------------|
 | **Test** | Push, PR | Lint, test, coverage | ✅ Auto |
 | **Copilot Implement** | Issue comment `/implement-plan` or `/approved` | Trigger implementation | ✅ Auto (CODEOWNERS only) |
+| **Teams Notifications** | PR opened, closed | Send Teams notifications with adaptive cards | ✅ Auto |
 | **Deploy** (Staging) | Push to `dev` | Deploy to staging | ✅ Auto |
 | **Deploy** (Production) | Push to `main` | Deploy to production | 🔐 Manual approval required |
 
@@ -255,6 +256,16 @@ See [`docs/ci-cd.md`](ci-cd.md) for complete documentation including:
 - Security best practices
 - Advanced configuration
 - Complete troubleshooting guide
+
+### Microsoft Teams Notifications
+
+See [`docs/teams-notifications.md`](teams-notifications.md) for Teams integration:
+- Quick setup guide (5 minutes)
+- Webhook configuration
+- Adaptive card customization
+- Troubleshooting common issues
+
+Quick reference: [`docs/teams-notifications-quickref.md`](teams-notifications-quickref.md)
 
 ---
 

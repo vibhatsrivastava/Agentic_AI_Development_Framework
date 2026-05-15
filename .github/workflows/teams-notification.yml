@@ -1,0 +1,224 @@
+name: Microsoft Teams Notifications
+
+# Send Microsoft Teams notifications when PRs are opened or closed
+on:
+  pull_request:
+    types: [opened, closed]
+
+permissions:
+  pull-requests: read
+  contents: read
+
+jobs:
+  notify-teams:
+    name: Send Teams Notification
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Prepare notification data
+        id: prepare
+        run: |
+          # Determine PR status and color
+          if [ "${{ github.event.pull_request.merged }}" == "true" ]; then
+            STATUS="Merged"
+            COLOR="Good"
+            ICON="✅"
+          elif [ "${{ github.event.pull_request.state }}" == "closed" ]; then
+            STATUS="Closed"
+            COLOR="Attention"
+            ICON="❌"
+          else
+            STATUS="Opened"
+            COLOR="Accent"
+            ICON="🔔"
+          fi
+          
+          echo "status=$STATUS" >> $GITHUB_OUTPUT
+          echo "color=$COLOR" >> $GITHUB_OUTPUT
+          echo "icon=$ICON" >> $GITHUB_OUTPUT
+          
+          # Format the PR body for display (truncate if too long)
+          PR_BODY=$(cat <<'EOF'
+          ${{ github.event.pull_request.body }}
+          EOF
+          )
+          
+          # Truncate to 500 characters and escape for JSON
+          if [ ${#PR_BODY} -gt 500 ]; then
+            PR_BODY="${PR_BODY:0:500}..."
+          fi
+          
+          # Save to file for next step (avoid shell escaping issues)
+          echo "$PR_BODY" > /tmp/pr_body.txt
+          
+          echo "PR body saved to temp file"
+      
+      - name: Send Teams notification
+        env:
+          TEAMS_WEBHOOK_URL: ${{ secrets.MS_TEAMS_WEBHOOK_URL }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_AUTHOR_URL: ${{ github.event.pull_request.user.html_url }}
+          PR_AUTHOR_AVATAR: ${{ github.event.pull_request.user.avatar_url }}
+          REPO_NAME: ${{ github.repository }}
+          REPO_URL: ${{ github.event.repository.html_url }}
+          BRANCH_NAME: ${{ github.event.pull_request.head.ref }}
+          BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
+          STATUS: ${{ steps.prepare.outputs.status }}
+          COLOR: ${{ steps.prepare.outputs.color }}
+          ICON: ${{ steps.prepare.outputs.icon }}
+          COMMITS_COUNT: ${{ github.event.pull_request.commits }}
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+          ADDITIONS: ${{ github.event.pull_request.additions }}
+          DELETIONS: ${{ github.event.pull_request.deletions }}
+        run: |
+          # Read PR body from temp file
+          PR_BODY=$(cat /tmp/pr_body.txt | jq -Rs .)
+          
+          # Create adaptive card payload
+          cat > /tmp/teams_payload.json <<EOF
+          {
+            "type": "message",
+            "attachments": [
+              {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "contentUrl": null,
+                "content": {
+                  "\$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                  "type": "AdaptiveCard",
+                  "version": "1.4",
+                  "body": [
+                    {
+                      "type": "Container",
+                      "style": "${COLOR}",
+                      "items": [
+                        {
+                          "type": "ColumnSet",
+                          "columns": [
+                            {
+                              "type": "Column",
+                              "width": "auto",
+                              "items": [
+                                {
+                                  "type": "Image",
+                                  "url": "${PR_AUTHOR_AVATAR}",
+                                  "size": "Small",
+                                  "style": "Person"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "Column",
+                              "width": "stretch",
+                              "items": [
+                                {
+                                  "type": "TextBlock",
+                                  "text": "${ICON} Pull Request ${STATUS}",
+                                  "weight": "Bolder",
+                                  "size": "Large"
+                                },
+                                {
+                                  "type": "TextBlock",
+                                  "text": "By [${PR_AUTHOR}](${PR_AUTHOR_URL})",
+                                  "spacing": "None",
+                                  "isSubtle": true
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "Container",
+                      "items": [
+                        {
+                          "type": "TextBlock",
+                          "text": "**[PR #${PR_NUMBER}](${PR_URL}):** ${PR_TITLE}",
+                          "wrap": true,
+                          "size": "Medium",
+                          "weight": "Bolder"
+                        },
+                        {
+                          "type": "TextBlock",
+                          "text": ${PR_BODY},
+                          "wrap": true,
+                          "maxLines": 3,
+                          "spacing": "Small"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "FactSet",
+                      "facts": [
+                        {
+                          "title": "Repository:",
+                          "value": "${REPO_NAME}"
+                        },
+                        {
+                          "title": "Branch:",
+                          "value": "${BRANCH_NAME} → ${BASE_BRANCH}"
+                        },
+                        {
+                          "title": "Status:",
+                          "value": "${STATUS}"
+                        },
+                        {
+                          "title": "Changes:",
+                          "value": "${COMMITS_COUNT} commits, ${CHANGED_FILES} files (+${ADDITIONS}/-${DELETIONS})"
+                        }
+                      ]
+                    }
+                  ],
+                  "actions": [
+                    {
+                      "type": "Action.OpenUrl",
+                      "title": "View Pull Request",
+                      "url": "${PR_URL}"
+                    },
+                    {
+                      "type": "Action.OpenUrl",
+                      "title": "View Repository",
+                      "url": "${REPO_URL}"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+          EOF
+          
+          # Send notification to Teams
+          echo "Sending notification to Microsoft Teams..."
+          
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "${TEAMS_WEBHOOK_URL}" \
+            -H "Content-Type: application/json" \
+            -d @/tmp/teams_payload.json)
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          RESPONSE_BODY=$(echo "$RESPONSE" | head -n-1)
+          
+          if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 201 ]; then
+            echo "✅ Successfully sent notification to Microsoft Teams"
+            echo "Response: $RESPONSE_BODY"
+          else
+            echo "❌ Failed to send notification to Microsoft Teams"
+            echo "HTTP Status Code: $HTTP_CODE"
+            echo "Response: $RESPONSE_BODY"
+            exit 1
+          fi
+      
+      - name: Log notification details
+        if: always()
+        run: |
+          echo "=== Notification Summary ==="
+          echo "PR #${{ github.event.pull_request.number }}: ${{ github.event.pull_request.title }}"
+          echo "Status: ${{ steps.prepare.outputs.status }}"
+          echo "Author: ${{ github.event.pull_request.user.login }}"
+          echo "Repository: ${{ github.repository }}"
+          echo "=========================="
