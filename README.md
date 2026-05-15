@@ -3,6 +3,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)
 ![LangChain](https://img.shields.io/badge/LangChain-latest-green?logo=chainlink)
 ![Ollama](https://img.shields.io/badge/Ollama-local%20%7C%20hosted-orange)
+![Tests](https://img.shields.io/github/actions/workflow/status/vibhatsrivastava/Agentic_AI_Development_Framework/test.yml?label=tests)
 ![License](https://img.shields.io/github/license/vibhatsrivastava/Agentic_AI_Development_Framework)
 
 A curated **monorepo** of Agentic AI applications built with [LangChain](https://docs.langchain.com/) and [Ollama](https://ollama.com/). Each project is self-contained and demonstrates a specific use case, integration, or agentic pattern.
@@ -216,6 +217,36 @@ projects/NN_project_name/
 
 ---
 
+## 🔄 CI/CD Pipeline
+
+**Automated implementation and deployment** powered by GitHub Actions with CODEOWNERS approval workflow.
+
+### Key Features
+
+- 🤖 **Auto-Implementation**: CODEOWNERS approve issues with `/implement-plan` or `/approved` commands
+- 🔐 **Manual Production Approval**: Deployment to `main` requires CODEOWNER approval
+- 🌿 **Branch & Model Configuration**: Specify custom branch and LLM model for each implementation
+- 📋 **Context-Aware**: Collects all issue comments and feedback before implementation
+- 🚀 **Automated Staging**: Deploy to staging automatically from `dev` branch
+
+### Quick Commands
+
+```bash
+# Trigger implementation (in issue comment, CODEOWNERS only)
+/implement-plan                                    # Uses defaults
+/implement-plan branch=feature/auth model=llama3.1:8b  # Custom config
+/approved branch=hotfix/security-fix               # Alternative command
+```
+
+### Documentation
+
+| Guide | Description |
+|-------|-------------|
+| **[CI/CD Overview](docs/ci-cd.md)** | Complete pipeline documentation, workflows, security |
+| **[Quick Reference](docs/ci-cd-quickref.md)** | Quick commands, troubleshooting, common tasks |
+
+---
+
 ## 📚 Documentation
 
 | Guide | Description | Best For |
@@ -226,6 +257,7 @@ projects/NN_project_name/
 | **[Models](docs/models.md)** | Model reference, alternatives, swapping guide, class comparison | Switching models, understanding capabilities |
 | **[Testing](docs/testing.md)** | Testing conventions, mocking patterns, coverage requirements | Writing tests, achieving 90% coverage |
 | **[HashiCorp Vault](docs/vault.md)** | Vault setup, configuration, team workflows | Enterprise deployments, secret management |
+| **[CI/CD Pipeline](docs/ci-cd.md)** | Automated workflows, CODEOWNERS approval, deployment | Setting up automation, approving implementations |
 | **[Contributing](docs/contributing.md)** | Project naming, scaffold requirements, conventions | Adding new projects, following standards |
 | **[Prerequisites](docs/prerequisites.md)** | System requirements, installation guides | Initial setup, dependency installation |
 
