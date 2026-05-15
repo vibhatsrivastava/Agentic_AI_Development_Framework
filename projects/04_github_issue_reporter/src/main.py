@@ -20,10 +20,12 @@ if str(_repo_root) not in sys.path:
 
 # Configure UTF-8 encoding for stdout/stderr to support emoji on Windows
 # AWX/Ansible on Windows uses cp1252 by default, which doesn't support Unicode emoji
+# Skip if already wrapped (e.g., by AWX wrapper) to prevent double-wrapping
 if sys.platform == "win32":
     import io
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+    if not isinstance(sys.stdout, io.TextIOWrapper):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 import argparse
 import json
