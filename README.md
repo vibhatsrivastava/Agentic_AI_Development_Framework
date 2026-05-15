@@ -228,6 +228,7 @@ projects/NN_project_name/
 - 🌿 **Branch & Model Configuration**: Specify custom branch and LLM model for each implementation
 - 📋 **Context-Aware**: Collects all issue comments and feedback before implementation
 - 🚀 **Automated Staging**: Deploy to staging automatically from `dev` branch
+- 📢 **Teams Notifications**: Rich adaptive card notifications in Microsoft Teams for PR events
 
 ### Quick Commands
 
@@ -244,6 +245,7 @@ projects/NN_project_name/
 |-------|-------------|
 | **[CI/CD Overview](docs/ci-cd.md)** | Complete pipeline documentation, workflows, security |
 | **[Quick Reference](docs/ci-cd-quickref.md)** | Quick commands, troubleshooting, common tasks |
+| **[Teams Notifications](docs/teams-notifications.md)** | Microsoft Teams PR notifications setup and configuration |
 
 ---
 
