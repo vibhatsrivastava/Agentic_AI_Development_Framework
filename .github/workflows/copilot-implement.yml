@@ -149,27 +149,15 @@ jobs:
             
             return issueContext;
       
-      - name: Assign issue to copilot agent
+      - name: Add labels for Copilot implementation
         if: |
           steps.check-codeowner.outputs.is_codeowner == 'true' &&
           steps.check-command.outputs.has_command == 'true'
         uses: actions/github-script@v7
         with:
           script: |
-            // Assign issue to the approver who will manage the Copilot implementation
-            // Since GitHub Copilot is a service (not a user account), we assign to the approver
-            const approver = '${{ github.event.comment.user.login }}';
-            await github.rest.issues.addAssignees({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              assignees: [approver]
-            }).catch(err => {
-              console.log(`Note: Could not assign to ${approver}:`, err.message);
-            });
-            
             // Add labels to track implementation status
-            // These labels indicate the issue is being handled by Copilot
+            // These labels indicate the issue is ready for Copilot implementation
             await github.rest.issues.addLabels({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -178,6 +166,10 @@ jobs:
             }).catch(err => {
               console.log('Note: Could not add labels:', err.message);
             });
+            
+            // Note: GitHub Copilot Workspace cannot be assigned as a user
+            // The issue remains unassigned until opened in Copilot Workspace
+            console.log('Issue ready for GitHub Copilot Workspace implementation');
       
       - name: Post confirmation comment
         if: |
@@ -193,27 +185,39 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: `✅ **Implementation Approved**
+              body: `✅ **Implementation Approved - Ready for GitHub Copilot Workspace**
               
               @${{ github.event.comment.user.login }} has approved this issue for implementation.
               
               **Configuration:**
               - 🌿 **Branch:** \`${branch}\`
               - 🤖 **Model:** \`${model}\`
-              - 👤 **Assigned to:** @${{ github.event.comment.user.login }} (managing Copilot implementation)
+              - 👤 **Approver:** @${{ github.event.comment.user.login }}
               - 🏷️ **Labels:** \`copilot-implementing\`, \`approved\`
               
-              **Next Steps:**
-              1. GitHub Copilot will analyze the issue and all comments
-              2. Implementation will be done on branch \`${branch}\`
-              3. A pull request will be created automatically
-              4. CODEOWNERS will be requested for review
+              ## 🚀 How to Implement with GitHub Copilot
               
-              **Note:** All previous comments and context have been collected for implementation.
+              **Option 1: GitHub Copilot Workspace (Recommended)**
+              1. Click the **"Open in Copilot Workspace"** button on this issue (requires GitHub Copilot license)
+              2. Copilot will automatically read all context and comments below
+              3. Review and approve Copilot's implementation plan
+              4. Copilot creates branch \`${branch}\` and opens a PR
+              
+              **Option 2: VS Code with GitHub Copilot**
+              1. Open this repository in VS Code
+              2. Use GitHub Copilot Chat: "Implement issue #${{ github.event.issue.number }}"
+              3. Create branch \`${branch}\` and commit changes
+              4. Push and create a PR
+              
+              **Option 3: Manual Implementation**
+              1. Review the implementation context comment below
+              2. Create branch \`${branch}\`
+              3. Implement the solution
+              4. Create a PR with your changes
               
               ---
               
-              🤖 *Triggering GitHub Copilot Workspace...*`
+              📋 *All issue context and comments have been collected below for Copilot analysis*`
             });
       
       - name: Trigger GitHub Copilot Workspace
