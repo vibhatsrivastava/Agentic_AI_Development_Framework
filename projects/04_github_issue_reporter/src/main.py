@@ -682,24 +682,125 @@ def send_teams_report(issues_data: dict, owner: str, repo: str, webhook_url: str
         
         # Build issue list (top 5 for brevity)
         issue_list_items = []
+        
+        # Add header row
+        issue_list_items.append({
+            "type": "ColumnSet",
+            "columns": [
+                {
+                    "type": "Column",
+                    "width": "auto",
+                    "items": [{
+                        "type": "TextBlock",
+                        "text": "**#**",
+                        "weight": "Bolder",
+                        "size": "Small"
+                    }]
+                },
+                {
+                    "type": "Column",
+                    "width": "stretch",
+                    "items": [{
+                        "type": "TextBlock",
+                        "text": "**Title**",
+                        "weight": "Bolder",
+                        "size": "Small"
+                    }]
+                },
+                {
+                    "type": "Column",
+                    "width": "auto",
+                    "items": [{
+                        "type": "TextBlock",
+                        "text": "**Author**",
+                        "weight": "Bolder",
+                        "size": "Small"
+                    }]
+                },
+                {
+                    "type": "Column",
+                    "width": "auto",
+                    "items": [{
+                        "type": "TextBlock",
+                        "text": "**Labels**",
+                        "weight": "Bolder",
+                        "size": "Small"
+                    }]
+                },
+                {
+                    "type": "Column",
+                    "width": "auto",
+                    "items": [{
+                        "type": "TextBlock",
+                        "text": "**Age**",
+                        "weight": "Bolder",
+                        "size": "Small"
+                    }]
+                }
+            ],
+            "separator": True
+        })
+        
+        # Add each issue as a row
         for issue in issues[:5]:
-            labels_str = ", ".join(issue["labels"][:3]) if issue["labels"] else "none"
-            if len(issue["labels"]) > 3:
-                labels_str += f" +{len(issue['labels']) - 3}"
+            labels_str = ", ".join(issue["labels"][:2]) if issue["labels"] else "none"
+            if len(issue["labels"]) > 2:
+                labels_str += f" +{len(issue['labels']) - 2}"
             
             issue_list_items.append({
-                "type": "TextBlock",
-                "text": f"**[#{issue['number']}]({issue['url']})** {issue['title'][:80]}{'...' if len(issue['title']) > 80 else ''}",
-                "wrap": True,
+                "type": "ColumnSet",
+                "columns": [
+                    {
+                        "type": "Column",
+                        "width": "auto",
+                        "items": [{
+                            "type": "TextBlock",
+                            "text": f"[#{issue['number']}]({issue['url']})",
+                            "size": "Small"
+                        }]
+                    },
+                    {
+                        "type": "Column",
+                        "width": "stretch",
+                        "items": [{
+                            "type": "TextBlock",
+                            "text": issue['title'][:60] + ('...' if len(issue['title']) > 60 else ''),
+                            "wrap": True,
+                            "size": "Small"
+                        }]
+                    },
+                    {
+                        "type": "Column",
+                        "width": "auto",
+                        "items": [{
+                            "type": "TextBlock",
+                            "text": issue['author'],
+                            "size": "Small",
+                            "isSubtle": True
+                        }]
+                    },
+                    {
+                        "type": "Column",
+                        "width": "auto",
+                        "items": [{
+                            "type": "TextBlock",
+                            "text": labels_str,
+                            "size": "Small",
+                            "isSubtle": True
+                        }]
+                    },
+                    {
+                        "type": "Column",
+                        "width": "auto",
+                        "items": [{
+                            "type": "TextBlock",
+                            "text": f"{issue['age_days']}d",
+                            "size": "Small",
+                            "isSubtle": True
+                        }]
+                    }
+                ],
                 "spacing": "Small"
-            })
-            issue_list_items.append({
-                "type": "TextBlock",
-                "text": f"👤 {issue['author']} | 🏷️ {labels_str} | 📅 {issue['age_days']} days old",
-                "wrap": True,
-                "isSubtle": True,
-                "spacing": "None",
-                "size": "Small"
             })
         
         # Add "and N more" text if there are more than 5 issues
