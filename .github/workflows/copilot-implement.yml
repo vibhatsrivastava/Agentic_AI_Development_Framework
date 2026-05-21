@@ -308,10 +308,10 @@ jobs:
               
               ## 📚 Documentation
               
-              - **Quick Guide:** [GitHub Copilot Integration](../docs/github-copilot-integration.md)
-              - **Detailed Reference:** [GitHub Copilot Workspace](../Quick-Reference/05_GitHub_Copilot_Workspace_Integration.md)
-              - **CI/CD Quick Reference:** [CI/CD Commands](../docs/ci-cd-quickref.md)
-              - **Testing Strategy:** [Testing Guide](../docs/TESTING_STRATEGY.md)
+              - **Quick Guide:** [GitHub Copilot Integration](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/github-copilot-integration.md)
+              - **Detailed Reference:** [GitHub Copilot Workspace](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/Quick-Reference/05_GitHub_Copilot_Workspace_Integration.md)
+              - **CI/CD Quick Reference:** [CI/CD Commands](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/ci-cd-quickref.md)
+              - **Testing Strategy:** [Testing Guide](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/TESTING_STRATEGY.md)
               
               ---
               

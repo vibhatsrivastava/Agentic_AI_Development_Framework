@@ -755,7 +755,7 @@ GitHub Copilot Workspace transforms how teams implement features:
 ### Official Documentation
 - [GitHub Copilot Documentation](https://docs.github.com/en/copilot)
 - [Assigning Issues to Copilot](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/start-copilot-sessions)
-- [Copilot Best Practices](https://github.blog/ai-and-ml/github-copilot/assigning-and-completing-issues-with-coding-agent-in-github-copilot/)
+- [Assigning and Completing Issues with Coding Agent](https://github.blog/ai-and-ml/github-copilot/assigning-and-completing-issues-with-coding-agent-in-github-copilot/)
 
 ### Repository Guides
 - [CI/CD Quick Reference](../docs/ci-cd-quickref.md)

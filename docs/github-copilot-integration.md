@@ -837,7 +837,7 @@ jobs:
 ### Official GitHub Documentation
 - [GitHub Copilot Documentation](https://docs.github.com/en/copilot)
 - [Using GitHub Copilot Cloud Agent](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/start-copilot-sessions)
-- [Assigning Issues to Copilot](https://github.blog/ai-and-ml/github-copilot/assigning-and-completing-issues-with-coding-agent-in-github-copilot/)
+- [Assigning and Completing Issues with Coding Agent](https://github.blog/ai-and-ml/github-copilot/assigning-and-completing-issues-with-coding-agent-in-github-copilot/)
 
 ### Repository Documentation
 - [Contributing Guide](contributing.md)
