@@ -3,7 +3,7 @@
 # Windows remote execution via psrp/WinRM
 # Project: 04_github_issue_reporter (langgraph architecture)
 
-- name: Execute AI Agent on Windows
+- name: Execute 04_github_issue_reporter AI Agent on Windows
   hosts: all
   gather_facts: false
   
@@ -11,13 +11,12 @@
     # Disable Python interpreter discovery for Windows/psrp connections
     ansible_python_interpreter: auto_silent
     
-    # Windows paths - CUSTOMIZE THESE for your environment
-    # Override via AWX job template extra-vars if different
-    project_dir: "C:/Users/<your-username>/Documents/GitHub/Agentic_AI_Development_Framework/projects/04_github_issue_reporter"
+    # Windows paths (backslashes escaped or use forward slashes)
+    project_dir: "C:/Users/vsrivastava/Documents/GitHub/Agentic_AI_Development_Framework/projects/04_github_issue_reporter"
     venv_path: "{{ project_dir }}/.venv"
     venv_activate_script: "{{ venv_path }}/Scripts/Activate.ps1"
     python_executable: "{{ venv_path }}/Scripts/python.exe"
-    repo_root: "C:/Users/<your-username>/Documents/GitHub/Agentic_AI_Development_Framework"
+    repo_root: "C:/Users/vsrivastava/Documents/GitHub/Agentic_AI_Development_Framework"
     
   tasks:
     - name: Verify project virtual environment exists
@@ -88,6 +87,7 @@
         $envVars['MAX_ISSUES'] = '{{ max_issues | default("100") }}'
         $envVars['LOG_LEVEL'] = '{{ log_level | default("INFO") }}'
         $envVars['AWX_JOB_ID'] = '{{ tower_job_id | default("") }}'
+        $envVars['SEND_TEAMS'] = '{{ send_teams | default("false") }}'
         
         # Output as JSON
         $envVars | ConvertTo-Json -Compress
@@ -157,7 +157,7 @@
     
     - name: Parse agent output as JSON
       ansible.builtin.set_fact:
-        agent_result: "{{ agent_json_output | from_json }}"
+        agent_result: "{{ agent_json_output }}"
       when: 
         - agent_json_output | length > 0
         - agent_json_output | trim | regex_search('^\{.*\}$')

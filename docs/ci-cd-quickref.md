@@ -18,7 +18,7 @@ Quick reference guide for using the CI/CD pipeline in the Agentic AI Development
 /implement-plan model=llama3.1:8b
 
 # Both parameters
-/approved branch=feature/auth-fix model=gpt-oss:20b
+/implement-plan branch=feature/auth-fix model=gpt-oss:20b
 ```
 
 ### Deploy to Production
@@ -36,7 +36,7 @@ Quick reference guide for using the CI/CD pipeline in the Agentic AI Development
 | Workflow | Trigger | Purpose | Auto/Manual |
 |----------|---------|---------|-------------|
 | **Test** | Push, PR | Lint, test, coverage | ✅ Auto |
-| **Copilot Implement** | Issue comment `/implement-plan` or `/approved` | Trigger implementation | ✅ Auto (CODEOWNERS only) |
+| **Copilot Implement** | Issue comment `/implement-plan` | Trigger implementation | ✅ Auto (CODEOWNERS only) |
 | **Teams Notifications** | PR opened, closed | Send Teams notifications with adaptive cards | ✅ Auto |
 | **Deploy** (Staging) | Push to `dev` | Deploy to staging | ✅ Auto |
 | **Deploy** (Production) | Push to `main` | Deploy to production | 🔐 Manual approval required |
@@ -48,7 +48,7 @@ Quick reference guide for using the CI/CD pipeline in the Agentic AI Development
 ### Who Can Approve?
 
 Only users listed in `/CODEOWNERS` can:
-- Trigger `/implement-plan` or `/approved`
+- Trigger `/implement-plan`
 - Approve production deployments
 - Merge PRs to protected branches
 

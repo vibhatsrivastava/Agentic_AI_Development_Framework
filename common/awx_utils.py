@@ -78,7 +78,7 @@ def format_awx_output(result: Dict[str, Any]) -> str:
         '{"status":"success","result":"Weather in London: 15°C",...}'
     """
     try:
-        return json.dumps(result, indent=2, ensure_ascii=False)
+        return json.dumps(result, ensure_ascii=False)
     except (TypeError, ValueError) as e:
         # Fallback for non-serializable objects
         return json.dumps({

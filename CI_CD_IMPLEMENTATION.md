@@ -25,7 +25,7 @@ This document summarizes the complete CI/CD pipeline implementation for the Agen
   - Codecov integration
 
 - **`copilot-implement.yml`** (New)
-  - Listens for issue comments with `/implement-plan` or `/approved`
+  - Listens for issue comments with `/implement-plan`
   - Validates commenter is CODEOWNER
   - Parses optional branch and model parameters
   - Collects all issue context and comments
@@ -45,7 +45,7 @@ This document summarizes the complete CI/CD pipeline implementation for the Agen
 - **CODEOWNERS file** created at repository root
 - Workflow validates commenter against CODEOWNERS before any action
 - Unauthorized users receive error message explaining why command failed
-- Only CODEOWNERS can trigger `/implement-plan` or `/approved` commands
+- Only CODEOWNERS can trigger the `/implement-plan` command
 - All approvals are logged in issue comments with audit trail
 
 **Commands:**
@@ -55,7 +55,6 @@ This document summarizes the complete CI/CD pipeline implementation for the Agen
 /implement-plan branch=feature/auth                # Custom branch
 /implement-plan model=llama3.1:8b                  # Custom model
 /implement-plan branch=hotfix/security model=gpt-oss:20b  # Both
-/approved [options]                                # Alternative command
 ```
 
 ### ✅ 3. Branch and LLM Model Configuration

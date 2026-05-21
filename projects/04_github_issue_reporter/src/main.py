@@ -503,6 +503,7 @@ def list_recent_issues(owner: str, repo: str, hours: int = 24, token: Optional[s
 
     try:
         logger.info(f"Fetching issues opened in the last {hours} hours for {owner}/{repo}")
+        logger.info(f"Cutoff timestamp: {cutoff.isoformat()} (issues created before this will be excluded)")
         # Fetch recent issues (sorted by created, descending)
         resp = requests.get(
             f"https://api.github.com/repos/{owner}/{repo}/issues",
@@ -516,12 +517,14 @@ def list_recent_issues(owner: str, repo: str, hours: int = 24, token: Optional[s
         for issue in batch:
             # Exclude pull requests
             if "pull_request" in issue:
+                logger.debug(f"Skipping PR #{issue['number']}: {issue['title']}")
                 continue
             
             created_at = datetime.fromisoformat(issue["created_at"].replace("Z", "+00:00"))
             
             # Stop when we reach issues older than cutoff
             if created_at < cutoff:
+                logger.info(f"Stopping at issue #{issue['number']} (created {created_at.isoformat()}, before cutoff)")
                 break
             
             created = date.fromisoformat(issue["created_at"][:10])
@@ -529,7 +532,7 @@ def list_recent_issues(owner: str, repo: str, hours: int = 24, token: Optional[s
             assignee = issue["assignee"]["login"] if issue.get("assignee") else "Unassigned"
             labels = [lbl["name"] for lbl in issue.get("labels", [])]
 
-            logger.info(f"Recent issue #{issue['number']}: {issue['title']}")
+            logger.info(f"✓ Including issue #{issue['number']}: {issue['title']} (created {created_at.isoformat()})")
             issues.append({
                 "number": issue["number"],
                 "title": issue["title"],
@@ -834,24 +837,125 @@ def send_teams_report(issues_data: dict, owner: str, repo: str, webhook_url: str
         
         # Build issue list (top 5 for brevity)
         issue_list_items = []
+        
+        # Add header row
+        issue_list_items.append({
+            "type": "ColumnSet",
+            "columns": [
+                {
+                    "type": "Column",
+                    "width": "auto",
+                    "items": [{
+                        "type": "TextBlock",
+                        "text": "**#**",
+                        "weight": "Bolder",
+                        "size": "Small"
+                    }]
+                },
+                {
+                    "type": "Column",
+                    "width": "stretch",
+                    "items": [{
+                        "type": "TextBlock",
+                        "text": "**Title**",
+                        "weight": "Bolder",
+                        "size": "Small"
+                    }]
+                },
+                {
+                    "type": "Column",
+                    "width": "auto",
+                    "items": [{
+                        "type": "TextBlock",
+                        "text": "**Author**",
+                        "weight": "Bolder",
+                        "size": "Small"
+                    }]
+                },
+                {
+                    "type": "Column",
+                    "width": "auto",
+                    "items": [{
+                        "type": "TextBlock",
+                        "text": "**Labels**",
+                        "weight": "Bolder",
+                        "size": "Small"
+                    }]
+                },
+                {
+                    "type": "Column",
+                    "width": "auto",
+                    "items": [{
+                        "type": "TextBlock",
+                        "text": "**Age**",
+                        "weight": "Bolder",
+                        "size": "Small"
+                    }]
+                }
+            ],
+            "separator": True
+        })
+        
+        # Add each issue as a row
         for issue in issues[:5]:
-            labels_str = ", ".join(issue["labels"][:3]) if issue["labels"] else "none"
-            if len(issue["labels"]) > 3:
-                labels_str += f" +{len(issue['labels']) - 3}"
+            labels_str = ", ".join(issue["labels"][:2]) if issue["labels"] else "none"
+            if len(issue["labels"]) > 2:
+                labels_str += f" +{len(issue['labels']) - 2}"
             
             issue_list_items.append({
-                "type": "TextBlock",
-                "text": f"**[#{issue['number']}]({issue['url']})** {issue['title'][:80]}{'...' if len(issue['title']) > 80 else ''}",
-                "wrap": True,
+                "type": "ColumnSet",
+                "columns": [
+                    {
+                        "type": "Column",
+                        "width": "auto",
+                        "items": [{
+                            "type": "TextBlock",
+                            "text": f"[#{issue['number']}]({issue['url']})",
+                            "size": "Small"
+                        }]
+                    },
+                    {
+                        "type": "Column",
+                        "width": "stretch",
+                        "items": [{
+                            "type": "TextBlock",
+                            "text": issue['title'][:60] + ('...' if len(issue['title']) > 60 else ''),
+                            "wrap": True,
+                            "size": "Small"
+                        }]
+                    },
+                    {
+                        "type": "Column",
+                        "width": "auto",
+                        "items": [{
+                            "type": "TextBlock",
+                            "text": issue['author'],
+                            "size": "Small",
+                            "isSubtle": True
+                        }]
+                    },
+                    {
+                        "type": "Column",
+                        "width": "auto",
+                        "items": [{
+                            "type": "TextBlock",
+                            "text": labels_str,
+                            "size": "Small",
+                            "isSubtle": True
+                        }]
+                    },
+                    {
+                        "type": "Column",
+                        "width": "auto",
+                        "items": [{
+                            "type": "TextBlock",
+                            "text": f"{issue['age_days']}d",
+                            "size": "Small",
+                            "isSubtle": True
+                        }]
+                    }
+                ],
                 "spacing": "Small"
-            })
-            issue_list_items.append({
-                "type": "TextBlock",
-                "text": f"👤 {issue['author']} | 🏷️ {labels_str} | 📅 {issue['age_days']} days old",
-                "wrap": True,
-                "isSubtle": True,
-                "spacing": "None",
-                "size": "Small"
             })
         
         # Add "and N more" text if there are more than 5 issues
@@ -966,6 +1070,285 @@ def send_teams_report(issues_data: dict, owner: str, repo: str, webhook_url: str
         return False
 
 
+def send_teams_auto_analyze_notification(owner: str, repo: str, webhook_url: str, analyzed_issues: list, posted: int, skipped: int, errors: int, dry_run: bool = False) -> bool:
+    """
+    Send auto-analyze completion notification to Microsoft Teams using adaptive cards.
+    
+    Args:
+        owner: Repository owner
+        repo: Repository name
+        webhook_url: Microsoft Teams webhook URL
+        analyzed_issues: List of issue dictionaries that were analyzed
+        posted: Number of recommendations posted
+        skipped: Number of issues skipped
+        errors: Number of errors encountered
+        dry_run: Whether this was a dry run
+    
+    Returns:
+        True if notification sent successfully, False otherwise
+    """
+    try:
+        total = len(analyzed_issues)
+        
+        # Determine status and color
+        if dry_run:
+            status_text = "🔍 Auto-Analysis Dry Run Complete"
+            color = "Default"
+            summary = f"Would analyze {posted} issue{'s' if posted != 1 else ''}, {skipped} skipped"
+        elif errors > 0:
+            status_text = "⚠️ Auto-Analysis Completed with Errors"
+            color = "Warning"
+            summary = f"{posted} recommendation{'s' if posted != 1 else ''} posted, {errors} error{'s' if errors != 1 else ''}"
+        elif posted == 0:
+            status_text = "ℹ️ Auto-Analysis Complete"
+            color = "Default"
+            summary = f"No new issues to analyze (all {skipped} already have recommendations)"
+        else:
+            status_text = "✅ Auto-Analysis Complete"
+            color = "Good"
+            summary = f"{posted} AI recommendation{'s' if posted != 1 else ''} posted to GitHub"
+        
+        # Build issue list (show all analyzed issues, max 10)
+        issue_list_items = []
+        for issue in analyzed_issues[:10]:
+            issue_list_items.append({
+                "type": "Container",
+                "items": [
+                    {
+                        "type": "TextBlock",
+                        "text": f"[#{issue['number']}]({issue['url']}) {issue['title']}",
+                        "wrap": True,
+                        "size": "Small"
+                    }
+                ],
+                "spacing": "Small"
+            })
+        
+        if total > 10:
+            issue_list_items.append({
+                "type": "TextBlock",
+                "text": f"_...and {total - 10} more_",
+                "isSubtle": True,
+                "size": "Small"
+            })
+        
+        # Build adaptive card
+        adaptive_card = {
+            "type": "message",
+            "attachments": [{
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "contentUrl": None,
+                "content": {
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    "type": "AdaptiveCard",
+                    "version": "1.4",
+                    "body": [
+                        {
+                            "type": "Container",
+                            "style": color,
+                            "items": [{
+                                "type": "TextBlock",
+                                "text": status_text,
+                                "weight": "Bolder",
+                                "size": "Large"
+                            }]
+                        },
+                        {
+                            "type": "Container",
+                            "items": [
+                                {
+                                    "type": "TextBlock",
+                                    "text": f"**{owner}/{repo}**",
+                                    "wrap": True,
+                                    "size": "Medium",
+                                    "weight": "Bolder"
+                                },
+                                {
+                                    "type": "TextBlock",
+                                    "text": summary,
+                                    "wrap": True,
+                                    "spacing": "Small"
+                                }
+                            ]
+                        },
+                        {
+                            "type": "FactSet",
+                            "facts": [
+                                {"title": "Issues Found:", "value": str(total)},
+                                {"title": "Recommendations Posted:" if not dry_run else "Would Analyze:", "value": str(posted)},
+                                {"title": "Already Analyzed:", "value": str(skipped)},
+                                {"title": "Errors:", "value": str(errors) if errors > 0 else "None"}
+                            ]
+                        }
+                    ],
+                    "actions": [
+                        {
+                            "type": "Action.OpenUrl",
+                            "title": "View Issues",
+                            "url": f"https://github.com/{owner}/{repo}/issues"
+                        }
+                    ]
+                }
+            }]
+        }
+        
+        # Add issue list if there are issues
+        if issue_list_items:
+            adaptive_card["attachments"][0]["content"]["body"].insert(3, {
+                "type": "Container",
+                "separator": True,
+                "items": [
+                    {
+                        "type": "TextBlock",
+                        "text": "**Analyzed Issues**" if not dry_run else "**Issues to Analyze**",
+                        "weight": "Bolder",
+                        "size": "Medium"
+                    }
+                ] + issue_list_items
+            })
+        
+        # Send to Teams
+        logger.info(f"Sending auto-analyze notification to Microsoft Teams for {owner}/{repo}")
+        response = requests.post(
+            webhook_url,
+            json=adaptive_card,
+            headers={"Content-Type": "application/json"},
+            timeout=10
+        )
+        
+        if response.status_code in [200, 201]:
+            logger.info("✅ Successfully sent auto-analyze notification to Microsoft Teams")
+            return True
+        else:
+            logger.error(f"Failed to send Teams notification: HTTP {response.status_code} - {response.text}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Error sending Teams notification: {e}")
+        return False
+
+
+def send_teams_issue_notification(owner: str, repo: str, webhook_url: str, issue_number: int, issue_title: str, issue_url: str, success: bool = True) -> bool:
+    """
+    Send single issue analysis notification to Microsoft Teams using adaptive cards.
+    
+    Args:
+        owner: Repository owner
+        repo: Repository name
+        webhook_url: Microsoft Teams webhook URL
+        issue_number: Issue number that was analyzed
+        issue_title: Issue title
+        issue_url: URL to the GitHub issue
+        success: Whether the analysis was successful
+    
+    Returns:
+        True if notification sent successfully, False otherwise
+    """
+    try:
+        # Determine status and color
+        if success:
+            status_text = "✅ Issue Analysis Complete"
+            color = "Good"
+            summary = f"AI recommendation posted to issue #{issue_number}"
+        else:
+            status_text = "⚠️ Issue Analysis Failed"
+            color = "Attention"
+            summary = f"Failed to analyze issue #{issue_number}"
+        
+        # Build adaptive card
+        adaptive_card = {
+            "type": "message",
+            "attachments": [{
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "contentUrl": None,
+                "content": {
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    "type": "AdaptiveCard",
+                    "version": "1.4",
+                    "body": [
+                        {
+                            "type": "Container",
+                            "style": color,
+                            "items": [{
+                                "type": "TextBlock",
+                                "text": status_text,
+                                "weight": "Bolder",
+                                "size": "Large"
+                            }]
+                        },
+                        {
+                            "type": "Container",
+                            "items": [
+                                {
+                                    "type": "TextBlock",
+                                    "text": f"**{owner}/{repo}**",
+                                    "wrap": True,
+                                    "size": "Medium",
+                                    "weight": "Bolder"
+                                },
+                                {
+                                    "type": "TextBlock",
+                                    "text": summary,
+                                    "wrap": True,
+                                    "spacing": "Small"
+                                }
+                            ]
+                        },
+                        {
+                            "type": "Container",
+                            "separator": True,
+                            "items": [
+                                {
+                                    "type": "TextBlock",
+                                    "text": f"**Issue #{issue_number}**",
+                                    "weight": "Bolder"
+                                },
+                                {
+                                    "type": "TextBlock",
+                                    "text": issue_title,
+                                    "wrap": True,
+                                    "spacing": "Small"
+                                }
+                            ]
+                        }
+                    ],
+                    "actions": [
+                        {
+                            "type": "Action.OpenUrl",
+                            "title": "View Issue & Recommendation",
+                            "url": issue_url
+                        },
+                        {
+                            "type": "Action.OpenUrl",
+                            "title": "View Repository",
+                            "url": f"https://github.com/{owner}/{repo}"
+                        }
+                    ]
+                }
+            }]
+        }
+        
+        # Send to Teams
+        logger.info(f"Sending issue analysis notification to Microsoft Teams for issue #{issue_number}")
+        response = requests.post(
+            webhook_url,
+            json=adaptive_card,
+            headers={"Content-Type": "application/json"},
+            timeout=10
+        )
+        
+        if response.status_code in [200, 201]:
+            logger.info("✅ Successfully sent issue analysis notification to Microsoft Teams")
+            return True
+        else:
+            logger.error(f"Failed to send Teams notification: HTTP {response.status_code} - {response.text}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Error sending Teams notification: {e}")
+        return False
+
+
 def process_single_repo_report(owner: str, repo: str, token: str, send_teams: bool = False):
     """
     Process report mode for a single repository.
@@ -1004,7 +1387,7 @@ def process_single_repo_report(owner: str, repo: str, token: str, send_teams: bo
         print(f"\n❌ Report generation failed: {e}")
 
 
-def process_single_repo_issue(owner: str, repo: str, issue_number: int, token: str):
+def process_single_repo_issue(owner: str, repo: str, issue_number: int, token: str, send_teams: bool = False):
     """
     Process issue recommendation mode for a single repository.
     
@@ -1013,6 +1396,7 @@ def process_single_repo_issue(owner: str, repo: str, issue_number: int, token: s
         repo: Repository name
         issue_number: Issue number to analyze
         token: GitHub API token
+        send_teams: Whether to send notification to Microsoft Teams
     """
     logger.info(f"Running in RECOMMENDATION mode for issue #{issue_number} in {owner}/{repo}")
     
@@ -1051,7 +1435,27 @@ def process_single_repo_issue(owner: str, repo: str, issue_number: int, token: s
         print(answer)
         print("="*80 + "\n")
         
-        logger.info("Issue analysis completed successfully")
+        # Send Teams notification if configured
+        if send_teams:
+            webhook_url = os.getenv("MS_TEAMS_WEBHOOK_URL")
+            if webhook_url:
+                # Fetch issue details for notification
+                issue_details_result = get_issue_details.invoke({"owner": owner, "repo": repo, "issue_number": issue_number})
+                issue_data = json.loads(issue_details_result)
+                issue_title = issue_data.get("title", f"Issue #{issue_number}")
+                issue_url = issue_data.get("url", f"https://github.com/{owner}/{repo}/issues/{issue_number}")
+                
+                if send_teams_issue_notification(owner, repo, webhook_url, issue_number, issue_title, issue_url, success=True):
+                    print("✅ Sent notification to Microsoft Teams")
+                else:
+                    print("⚠️  Failed to send Teams notification (recommendation was still posted to GitHub)")
+            else:
+                logger.warning("MS_TEAMS_WEBHOOK_URL not configured - skipping Teams notification")
+                print("⚠️  MS_TEAMS_WEBHOOK_URL not configured - skipping Teams notification")
+        
+        summary = f"✅ Issue #{issue_number} analyzed and recommendation posted"
+        logger.info(summary)
+        return summary
         
         # Send Teams notification if comment was posted successfully
         if is_valid_github_issue_url(answer):
@@ -1088,8 +1492,17 @@ def process_single_repo_issue(owner: str, repo: str, issue_number: int, token: s
                 print(f"⚠️  Teams notification failed (non-critical): {e}")
         
     except Exception as e:
-        logger.error(f"Issue analysis failed: {e}")
-        print(f"\n❌ Issue analysis failed: {e}")
+        error_msg = f"Issue analysis failed: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        print(f"\n❌ {error_msg}")
+        
+        # Send failure notification if Teams is configured
+        if send_teams:
+            webhook_url = os.getenv("MS_TEAMS_WEBHOOK_URL")
+            if webhook_url:
+                send_teams_issue_notification(owner, repo, webhook_url, issue_number, f"Issue #{issue_number}", f"https://github.com/{owner}/{repo}/issues/{issue_number}", success=False)
+        
+        return f"❌ {error_msg}"
     finally:
         # Restore original token
         if original_token is not None:
@@ -1098,7 +1511,7 @@ def process_single_repo_issue(owner: str, repo: str, issue_number: int, token: s
             del os.environ["GITHUB_TOKEN"]
 
 
-def process_single_repo_auto_analyze(owner: str, repo: str, token: str, dry_run: bool, max_issues: int):
+def process_single_repo_auto_analyze(owner: str, repo: str, token: str, dry_run: bool, max_issues: int, send_teams: bool = False):
     """
     Process auto-analyze mode for a single repository.
     
@@ -1108,6 +1521,7 @@ def process_single_repo_auto_analyze(owner: str, repo: str, token: str, dry_run:
         token: GitHub API token
         dry_run: Whether to preview without posting
         max_issues: Maximum number of issues to process
+        send_teams: Whether to send notification to Microsoft Teams
     """
     logger.info(f"Running in AUTO-ANALYZE mode for {owner}/{repo} (last 24 hours)")
     
@@ -1129,15 +1543,17 @@ def process_single_repo_auto_analyze(owner: str, repo: str, token: str, dry_run:
         recent_data = json.loads(result)
         
         if "error" in recent_data:
-            print(f"\n❌ Error fetching recent issues: {recent_data['error']}")
-            return
+            error_msg = recent_data['error']
+            print(f"\n❌ Error fetching recent issues: {error_msg}")
+            return f"❌ Auto-analyze failed: {error_msg}"
         
         issues = recent_data.get("issues", [])
         total_found = len(issues)
         
         if total_found == 0:
             print("\n✅ No new issues opened in the last 24 hours.")
-            return
+            logger.info("Auto-analyze completed: 0 issues found in last 24 hours")
+            return "✅ Auto-analyze completed: 0 issues found in last 24 hours"
         
         print(f"\n📊 Found {total_found} issues opened in the last 24 hours")
         
@@ -1150,6 +1566,7 @@ def process_single_repo_auto_analyze(owner: str, repo: str, token: str, dry_run:
         posted = 0
         skipped = 0
         errors = 0
+        processed_issues = []  # Track issues for Teams notification
         
         for issue in issues_to_process:
             issue_num = issue["number"]
@@ -1172,6 +1589,7 @@ def process_single_repo_auto_analyze(owner: str, repo: str, token: str, dry_run:
                 if dry_run:
                     print(f"🔍 DRY RUN: Would analyze and post recommendation for issue #{issue_num}")
                     analyzed += 1
+                    processed_issues.append(issue)
                     continue
                 
                 # Analyze and post recommendation
@@ -1221,6 +1639,7 @@ def process_single_repo_auto_analyze(owner: str, repo: str, token: str, dry_run:
                 
                 analyzed += 1
                 posted += 1
+                processed_issues.append(issue)
                 
             except Exception as e:
                 logger.error(f"Error processing issue #{issue_num}: {e}")
@@ -1241,11 +1660,39 @@ def process_single_repo_auto_analyze(owner: str, repo: str, token: str, dry_run:
             print(f"Errors: {errors}")
         print("="*80 + "\n")
         
-        logger.info("Auto-analyze completed successfully")
+        # Build summary message for AWX
+        if dry_run:
+            summary = f"✅ Auto-analyze completed (DRY RUN): {analyzed} would be analyzed, {skipped} skipped, {total_found} total found (last 24h)"
+        else:
+            summary = f"✅ Auto-analyze completed: {posted} posted, {skipped} skipped, {total_found} total found (last 24h)"
+        
+        if errors > 0:
+            summary += f", {errors} errors"
+        
+        logger.info(summary)
+        
+        # Send Teams notification if configured
+        if send_teams and not dry_run or (send_teams and dry_run and len(processed_issues) > 0):
+            webhook_url = os.getenv("MS_TEAMS_WEBHOOK_URL")
+            if webhook_url:
+                if send_teams_auto_analyze_notification(
+                    owner, repo, webhook_url, processed_issues, 
+                    posted if not dry_run else analyzed, skipped, errors, dry_run
+                ):
+                    print("\n✅ Sent notification to Microsoft Teams")
+                else:
+                    print("\n⚠️  Failed to send Teams notification (recommendations were still posted to GitHub)")
+            else:
+                logger.warning("MS_TEAMS_WEBHOOK_URL not configured - skipping Teams notification")
+                print("\n⚠️  MS_TEAMS_WEBHOOK_URL not configured - skipping Teams notification")
+        
+        return summary
         
     except Exception as e:
-        logger.error(f"Auto-analyze failed: {e}")
-        print(f"\n❌ Auto-analyze failed: {e}")
+        error_msg = f"Auto-analyze failed: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        print(f"\n❌ {error_msg}")
+        return f"❌ {error_msg}"
     finally:
         # Restore original token
         if original_token is not None:
@@ -1328,7 +1775,9 @@ def main():
   python src/main.py --report
   python src/main.py --report --send-teams
   python src/main.py --issue 42
+  python src/main.py --issue 42 --send-teams
   python src/main.py --auto-analyze
+  python src/main.py --auto-analyze --send-teams
   python src/main.py --auto-analyze --dry-run
 
   # Multi-repository mode (using repos.json configuration)
@@ -1336,6 +1785,7 @@ def main():
   python src/main.py --report --send-teams --repos-config repos.json
   python src/main.py --issue 42 --repos-config repos.json
   python src/main.py --auto-analyze --repos-config repos.json
+  python src/main.py --auto-analyze --send-teams --repos-config repos.json
         """
         )
         
@@ -1378,7 +1828,7 @@ def main():
         parser.add_argument(
             "--send-teams",
             action="store_true",
-            help="Send report to Microsoft Teams using adaptive cards (only with --report)"
+            help="Send notification to Microsoft Teams using adaptive cards"
         )
         
         args = parser.parse_args()
@@ -1390,8 +1840,6 @@ def main():
             parser.error("--dry-run can only be used with --auto-analyze")
         if args.max_issues <= 0:
             parser.error("--max-issues must be a positive integer")
-        if hasattr(args, 'send_teams') and args.send_teams and not args.report:
-            parser.error("--send-teams can only be used with --report")
 
     # Multi-repository mode: Process multiple repositories from config file
     if not awx_mode and hasattr(args, 'repos_config') and args.repos_config:
@@ -1424,9 +1872,11 @@ def main():
                     send_teams = hasattr(args, 'send_teams') and args.send_teams
                     process_single_repo_report(owner, repo, token, send_teams)
                 elif args.issue:
-                    process_single_repo_issue(owner, repo, args.issue, token)
+                    send_teams = hasattr(args, 'send_teams') and args.send_teams
+                    process_single_repo_issue(owner, repo, args.issue, token, send_teams)
                 elif args.auto_analyze:
-                    process_single_repo_auto_analyze(owner, repo, token, args.dry_run, args.max_issues)
+                    send_teams = hasattr(args, 'send_teams') and args.send_teams
+                    process_single_repo_auto_analyze(owner, repo, token, args.dry_run, args.max_issues, send_teams)
             
             logger.info("Multi-repository processing completed")
             return
@@ -1471,13 +1921,15 @@ def main():
     
     # Handle issue recommendation mode
     if args.issue:
-        process_single_repo_issue(owner, repo, args.issue, token)
-        return
+        send_teams = hasattr(args, 'send_teams') and args.send_teams
+        result = process_single_repo_issue(owner, repo, args.issue, token, send_teams)
+        return result
 
     # Handle auto-analyze mode
     if args.auto_analyze:
-        process_single_repo_auto_analyze(owner, repo, token, args.dry_run, args.max_issues)
-        return
+        send_teams = hasattr(args, 'send_teams') and args.send_teams
+        result = process_single_repo_auto_analyze(owner, repo, token, args.dry_run, args.max_issues, send_teams)
+        return result
 
 
 if __name__ == "__main__":

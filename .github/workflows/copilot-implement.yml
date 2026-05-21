@@ -1,7 +1,7 @@
 name: Copilot Auto-Implementation
 
 # Trigger when CODEOWNERS approve an issue for implementation
-# Commands: /implement-plan or /approved
+# Command: /implement-plan
 on:
   issue_comment:
     types: [created]
@@ -31,14 +31,21 @@ jobs:
           echo "Commenter: $COMMENTER"
           
           # Read CODEOWNERS file and extract usernames
-          if [ ! -f CODEOWNERS ]; then
-            echo "❌ CODEOWNERS file not found"
+          # Check both possible locations: .github/CODEOWNERS (recommended) and root CODEOWNERS
+          if [ -f .github/CODEOWNERS ]; then
+            CODEOWNERS_FILE=".github/CODEOWNERS"
+          elif [ -f CODEOWNERS ]; then
+            CODEOWNERS_FILE="CODEOWNERS"
+          else
+            echo "❌ CODEOWNERS file not found in .github/ or repository root"
             echo "is_codeowner=false" >> $GITHUB_OUTPUT
             exit 0
           fi
           
+          echo "Using CODEOWNERS file: $CODEOWNERS_FILE"
+          
           # Extract usernames from CODEOWNERS (matches @username pattern)
-          CODEOWNERS=$(grep -oP '@\K[a-zA-Z0-9_-]+' CODEOWNERS | sort -u)
+          CODEOWNERS=$(grep -oP '@\K[a-zA-Z0-9_-]+' "$CODEOWNERS_FILE" | sort -u)
           echo "Code owners: $CODEOWNERS"
           
           # Check if commenter is in the list
@@ -57,8 +64,8 @@ jobs:
           COMMENT_BODY="${{ github.event.comment.body }}"
           echo "Comment body: $COMMENT_BODY"
           
-          # Check for /implement-plan or /approved commands
-          if echo "$COMMENT_BODY" | grep -qiE '^/implement-plan|^/approved'; then
+          # Check for /implement-plan command
+          if echo "$COMMENT_BODY" | grep -qiE '^/implement-plan'; then
             echo "✅ Valid command found"
             echo "has_command=true" >> $GITHUB_OUTPUT
             
@@ -83,10 +90,26 @@ jobs:
       - name: Post validation failure comment
         if: |
           steps.check-codeowner.outputs.is_codeowner == 'false' &&
-          (contains(github.event.comment.body, '/implement-plan') || contains(github.event.comment.body, '/approved'))
+          contains(github.event.comment.body, '/implement-plan')
         uses: actions/github-script@v7
         with:
           script: |
+            const fs = require('fs');
+            let codeownersContent = '';
+            
+            // Check both possible CODEOWNERS locations
+            if (fs.existsSync('.github/CODEOWNERS')) {
+              codeownersContent = fs.readFileSync('.github/CODEOWNERS', 'utf8');
+            } else if (fs.existsSync('CODEOWNERS')) {
+              codeownersContent = fs.readFileSync('CODEOWNERS', 'utf8');
+            }
+            
+            const codeowners = codeownersContent
+              .split('\n')
+              .filter(line => line.includes('@') && !line.trim().startsWith('#'))
+              .map(line => line.trim())
+              .join('\n');
+            
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -95,14 +118,10 @@ jobs:
               
               @${{ github.event.comment.user.login }}, you are not authorized to trigger implementation.
               
-              Only CODEOWNERS can use \`/implement-plan\` or \`/approved\` commands.
+              Only CODEOWNERS can use the \`/implement-plan\` command.
               
               **Current CODEOWNERS:**
-              ${require('fs').readFileSync('CODEOWNERS', 'utf8')
-                .split('\n')
-                .filter(line => line.includes('@') && !line.trim().startsWith('#'))
-                .map(line => line.trim())
-                .join('\n')}`
+              ${codeowners}`
             });
       
       - name: Collect issue context
