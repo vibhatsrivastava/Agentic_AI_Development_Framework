@@ -73,6 +73,21 @@
         "ERROR"
       ],
       "new_question": true
+    },
+    {
+      "question_name": "Send Teams Notifications",
+      "question_description": "Send issue report to Microsoft Teams channel (only for 'report' mode)",
+      "required": false,
+      "type": "multiplechoice",
+      "variable": "send_teams",
+      "min": null,
+      "max": null,
+      "default": "false",
+      "choices": [
+        "true",
+        "false"
+      ],
+      "new_question": true
     }
   ]
 }

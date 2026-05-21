@@ -87,6 +87,7 @@
         $envVars['DRY_RUN'] = '{{ dry_run | default("false") }}'
         $envVars['MAX_ISSUES'] = '{{ max_issues | default("100") }}'
         $envVars['LOG_LEVEL'] = '{{ log_level | default("INFO") }}'
+        $envVars['SEND_TEAMS'] = '{{ send_teams | default("false") }}'
         $envVars['AWX_JOB_ID'] = '{{ tower_job_id | default("") }}'
         
         # Output as JSON
