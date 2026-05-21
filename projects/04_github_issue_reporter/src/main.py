@@ -876,11 +876,12 @@ def process_single_repo_issue(owner: str, repo: str, issue_number: int, token: s
                     "issue_number": issue_number,
                 })
                 issue_details = json.loads(issue_details_json)
-                issue_title = issue_details.get("title", f"Issue #{issue_number}")
+                issue_title = issue_details.get("title", "Issue Title Unavailable")
                 issue_url = issue_details.get("html_url", f"https://github.com/{owner}/{repo}/issues/{issue_number}")
                 
                 # Extract comment URL from answer (it should contain the GitHub issue comment URL)
-                comment_url = answer.strip() if is_valid_github_issue_url(answer.strip()) else issue_url
+                stripped_answer = answer.strip()
+                comment_url = stripped_answer if is_valid_github_issue_url(stripped_answer) else issue_url
                 
                 # Send Teams notification
                 teams_sent = send_teams_notification(
@@ -1013,7 +1014,8 @@ def process_single_repo_auto_analyze(owner: str, repo: str, token: str, dry_run:
                     try:
                         issue_title = issue["title"]
                         issue_url = issue["html_url"]
-                        comment_url = answer.strip() if is_valid_github_issue_url(answer.strip()) else issue_url
+                        stripped_answer = answer.strip()
+                        comment_url = stripped_answer if is_valid_github_issue_url(stripped_answer) else issue_url
                         
                         teams_sent = send_teams_notification(
                             owner=owner,
