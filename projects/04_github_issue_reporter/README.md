@@ -71,6 +71,14 @@ This agent uses LangGraph's ReAct (Reasoning + Acting) pattern to orchestrate mu
 - **NEW:** Posts recommendations directly to GitHub as collapsible comments
 - **NEW:** Duplicate detection prevents redundant bot comments
 
+✅ **Microsoft Teams Notifications** (NEW)
+- Sends rich adaptive card notifications to Teams when analysis completes
+- Includes issue title, number, repository, and analysis status
+- Provides direct links to GitHub issue and AI recommendation
+- Optional feature (only enabled when webhook URL is configured)
+- Non-critical failure handling (notification errors don't break agent)
+- Beautiful card UI with emojis and color-coded status
+
 ✅ **Automated Batch Processing**
 - **NEW:** Auto-analyze mode discovers and processes new issues automatically
 - Filters issues by creation time (last 24 hours)
@@ -387,7 +395,7 @@ notepad .env
 | `GITHUB_TOKEN` | ✅ Yes | GitHub Personal Access Token | `ghp_abc123...` |
 | `GITHUB_REPO_OWNER` | ✅ Yes | Repository owner (user or org) | `your_github_username` |
 | `GITHUB_REPO_NAME` | ✅ Yes | Repository name | `your_repository_name` |
-| `MS_TEAMS_WEBHOOK_URL` | ❌ Optional | Teams webhook for notifications | `https://your-org.webhook...` |
+| `MS_TEAMS_WEBHOOK_URL` | ❌ Optional | Teams incoming webhook URL | `https://your-org.webhook...` |
 | `OLLAMA_BASE_URL` | ✅ Yes | Ollama server URL | `http://localhost:11434` |
 | `OLLAMA_API_KEY` | ⚠️ Conditional | Required for remote Ollama | `Bearer token` |
 | `OLLAMA_MODEL` | ✅ Yes | LLM model name | `llama3.2:3b` |
