@@ -1,0 +1,103 @@
+{
+  "type": "message",
+  "attachments": [
+    {
+      "contentType": "application/vnd.microsoft.card.adaptive",
+      "contentUrl": null,
+      "content": {
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "type": "AdaptiveCard",
+        "version": "1.4",
+        "body": [
+          {
+            "type": "Container",
+            "style": "Good",
+            "items": [
+              {
+                "type": "ColumnSet",
+                "columns": [
+                  {
+                    "type": "Column",
+                    "width": "auto",
+                    "items": [
+                      {
+                        "type": "TextBlock",
+                        "text": "🤖",
+                        "size": "ExtraLarge"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "Column",
+                    "width": "stretch",
+                    "items": [
+                      {
+                        "type": "TextBlock",
+                        "text": "✅ AI Analysis Complete",
+                        "weight": "Bolder",
+                        "size": "Large"
+                      },
+                      {
+                        "type": "TextBlock",
+                        "text": "GitHub Issue Reporter Agent",
+                        "spacing": "None",
+                        "isSubtle": true
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "Container",
+            "items": [
+              {
+                "type": "TextBlock",
+                "text": "**[Issue #123](https://github.com/vibhatsrivastava/Agentic_AI_Development_Framework/issues/123):** Add Microsoft Teams notification feature",
+                "wrap": true,
+                "size": "Medium",
+                "weight": "Bolder"
+              },
+              {
+                "type": "TextBlock",
+                "text": "The AI agent has analyzed this issue and posted recommendations to GitHub.",
+                "wrap": true,
+                "spacing": "Small"
+              }
+            ]
+          },
+          {
+            "type": "FactSet",
+            "facts": [
+              {
+                "title": "Repository:",
+                "value": "vibhatsrivastava/Agentic_AI_Development_Framework"
+              },
+              {
+                "title": "Issue Number:",
+                "value": "#123"
+              },
+              {
+                "title": "Status:",
+                "value": "Analysis Posted"
+              }
+            ]
+          }
+        ],
+        "actions": [
+          {
+            "type": "Action.OpenUrl",
+            "title": "View Issue on GitHub",
+            "url": "https://github.com/vibhatsrivastava/Agentic_AI_Development_Framework/issues/123"
+          },
+          {
+            "type": "Action.OpenUrl",
+            "title": "View AI Recommendation",
+            "url": "https://github.com/vibhatsrivastava/Agentic_AI_Development_Framework/issues/123#issuecomment-123456"
+          }
+        ]
+      }
+    }
+  ]
+}
