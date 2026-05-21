@@ -181,6 +181,10 @@ jobs:
       
       - name: Create deployment tag
         run: |
+          # Configure Git identity for annotated tags
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
           # Create a deployment tag for tracking
           TAG_NAME="deploy-$(date +%Y%m%d-%H%M%S)"
           git tag -a "$TAG_NAME" -m "Production deployment from ${{ github.sha }}"
