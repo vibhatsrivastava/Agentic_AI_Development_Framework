@@ -51,6 +51,15 @@ This agent uses LangGraph's ReAct (Reasoning + Acting) pattern to orchestrate mu
 - Handles pagination automatically (up to 200 issues)
 - Excludes pull requests from the issue list
 - **NEW:** Direct Python formatting (no LLM) for faster execution
+- **NEW:** Microsoft Teams integration via adaptive cards
+
+✅ **Microsoft Teams Integration** (NEW)
+- Send issue reports to Teams channels using adaptive cards
+- Color-coded status badges based on issue count (Green/Yellow/Red)
+- Visual dashboard with summary statistics (total, bugs, enhancements, oldest issue)
+- Top 5 recent issues with click-through links to GitHub
+- Optional notification via `--send-teams` flag
+- Supports AWX automation with `SEND_TEAMS` environment variable
 
 ✅ **AI-Powered Recommendations**
 - Analyzes issue content including title, body, labels, and comments
@@ -365,7 +374,7 @@ GITHUB_TOKEN=ghp_your_personal_access_token_here
 GITHUB_REPO_OWNER=your_github_username_or_org
 GITHUB_REPO_NAME=your_repository_name
 
-# === Microsoft Teams Notifications (Optional) ===
+# === Microsoft Teams Integration (Optional) ===
 MS_TEAMS_WEBHOOK_URL=https://your-org.webhook.office.com/webhookb2/your-webhook-url
 ```
 
@@ -394,17 +403,17 @@ notepad .env
 
 ### Microsoft Teams Webhook Setup
 
-To enable Teams notifications, you need to create an incoming webhook in your Teams channel:
+To enable Teams notifications (optional):
 
-1. **Open Microsoft Teams** and navigate to your desired channel
-2. **Click the "..." menu** next to the channel name → **Connectors**
-3. **Search for "Incoming Webhook"** and click **Configure**
-4. **Name the webhook** (e.g., "GitHub Issue Reporter Bot")
-5. **Upload an icon** (optional) and click **Create**
-6. **Copy the webhook URL** provided
-7. **Paste the URL** into `MS_TEAMS_WEBHOOK_URL` in your `.env` file
+1. **Open Microsoft Teams** and navigate to the channel where you want notifications
+2. **Click the "..." (More options)** next to the channel name
+3. **Select "Connectors"**
+4. **Search for "Incoming Webhook"** and click "Configure"
+5. **Provide a name** (e.g., "GitHub Issue Reporter") and optionally upload an icon
+6. **Click "Create"** — Teams will generate a webhook URL
+7. **Copy the webhook URL** and add it to your project `.env` file as `MS_TEAMS_WEBHOOK_URL`
 
-**Note:** If `MS_TEAMS_WEBHOOK_URL` is not configured, the agent will skip Teams notifications without error. This feature is completely optional.
+**Note:** The webhook URL is sensitive — treat it like a password. Do not commit it to version control.
 
 ### Security Best Practices
 
@@ -451,6 +460,56 @@ python src\main.py --report
 | 12 | Update vault documentation | dave | Unassigned | docs | 2025-12-01 | 156 | 60 days ago | [#12](https://github.com/...) |
 ================================================================================
 ```
+
+#### Report Mode with Microsoft Teams Notifications
+
+```powershell
+# Generate issue report and send to Microsoft Teams
+python src\main.py --report --send-teams
+```
+
+**Prerequisites:**
+1. Configure `MS_TEAMS_WEBHOOK_URL` in your project `.env` file (see Configuration section)
+2. Create an Incoming Webhook in your Microsoft Teams channel
+
+**What it does:**
+1. Generates the standard issue report (displayed in console)
+2. Formats the report as a Microsoft Teams adaptive card
+3. Sends the card to the configured Teams channel
+4. Shows confirmation message
+
+**Example Output:**
+
+```markdown
+================================================================================
+**Open Issues Report**
+
+| # | Title | Author | Assignee | Labels | Opened | Age (days) | Last Updated | URL |
+|---|-------|--------|----------|--------|--------|------------|--------------|-----|
+| 42 | Fix token counter edge case | alice | bob | bug, priority:high | 2026-04-01 | 35 | 2 days ago | [#42](https://github.com/...) |
+
+**Summary:** 4 open issues. Oldest: 156 days.
+================================================================================
+
+✅ Report sent to Microsoft Teams
+```
+
+**Microsoft Teams Card Format:**
+
+The adaptive card includes:
+- **Status Badge:** Color-coded based on issue count (Green: ≤5, Yellow: 6-20, Red: >20)
+- **Repository Info:** Owner/repo name
+- **Summary Statistics:** Total issues, bug count, enhancement count, oldest issue age
+- **Recent Issues:** Top 5 issues with title, author, labels, and age
+- **Action Buttons:** Links to view all issues and repository
+
+![Teams Notification Example](screenshots/teams-notification.png)
+
+**Benefits:**
+- ✅ Share issue reports with non-technical stakeholders in Teams
+- ✅ Automated notifications for scheduled reports (via AWX/cron)
+- ✅ Visual dashboard for issue health in team channels
+- ✅ Click-through links directly to GitHub issues
 
 #### Recommendation Mode: Analyze Specific Issue and Post to GitHub
 

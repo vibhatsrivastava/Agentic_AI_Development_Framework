@@ -1093,4 +1093,218 @@ class TestAWXMode:
         assert mock_github_api.called
 
 
+class TestTeamsNotification:
+    """Tests for Microsoft Teams notification feature."""
+
+    def test_send_teams_report_success(self, mock_env):
+        """Test successful Teams notification with issues."""
+        from src.main import send_teams_report
+        
+        issues_data = {
+            "total_open": 3,
+            "issues": [
+                {
+                    "number": 42,
+                    "title": "Fix bug in authentication",
+                    "author": "alice",
+                    "assignee": "bob",
+                    "labels": ["bug", "priority:high"],
+                    "opened_at": "2026-04-01",
+                    "age_days": 35,
+                    "last_updated_days_ago": 2,
+                    "url": "https://github.com/test/test/issues/42"
+                },
+                {
+                    "number": 38,
+                    "title": "Add Redis integration",
+                    "author": "carol",
+                    "assignee": "—",
+                    "labels": ["enhancement"],
+                    "opened_at": "2026-03-15",
+                    "age_days": 52,
+                    "last_updated_days_ago": 10,
+                    "url": "https://github.com/test/test/issues/38"
+                },
+            ]
+        }
+        
+        # Mock requests.post
+        with patch("src.main.requests.post") as mock_post:
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_post.return_value = mock_response
+            
+            result = send_teams_report(
+                issues_data,
+                "test_owner",
+                "test_repo",
+                "https://test.webhook.office.com"
+            )
+            
+            assert result is True
+            assert mock_post.called
+            
+            # Verify adaptive card structure
+            call_args = mock_post.call_args
+            payload = call_args[1]["json"]
+            
+            assert payload["type"] == "message"
+            assert len(payload["attachments"]) == 1
+            assert payload["attachments"][0]["contentType"] == "application/vnd.microsoft.card.adaptive"
+            
+            card_content = payload["attachments"][0]["content"]
+            assert card_content["type"] == "AdaptiveCard"
+            assert card_content["version"] == "1.4"
+            assert len(card_content["body"]) > 0
+            assert len(card_content["actions"]) == 2
+
+    def test_send_teams_report_no_issues(self, mock_env):
+        """Test Teams notification with zero issues."""
+        from src.main import send_teams_report
+        
+        issues_data = {
+            "total_open": 0,
+            "issues": []
+        }
+        
+        with patch("src.main.requests.post") as mock_post:
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_post.return_value = mock_response
+            
+            result = send_teams_report(
+                issues_data,
+                "test_owner",
+                "test_repo",
+                "https://test.webhook.office.com"
+            )
+            
+            assert result is True
+            assert mock_post.called
+            
+            # Verify status text for no issues
+            call_args = mock_post.call_args
+            payload = call_args[1]["json"]
+            card_content = payload["attachments"][0]["content"]
+            
+            # Check that it says "No Open Issues"
+            status_container = card_content["body"][0]
+            status_text = status_container["items"][0]["text"]
+            assert "No Open Issues" in status_text
+
+    def test_send_teams_report_http_error(self, mock_env):
+        """Test Teams notification with HTTP error."""
+        from src.main import send_teams_report
+        
+        issues_data = {
+            "total_open": 1,
+            "issues": [{
+                "number": 1,
+                "title": "Test",
+                "author": "user",
+                "assignee": "—",
+                "labels": [],
+                "opened_at": "2026-01-01",
+                "age_days": 1,
+                "last_updated_days_ago": 0,
+                "url": "https://github.com/test/test/issues/1"
+            }]
+        }
+        
+        with patch("src.main.requests.post") as mock_post:
+            mock_response = Mock()
+            mock_response.status_code = 400
+            mock_response.text = "Bad Request"
+            mock_post.return_value = mock_response
+            
+            result = send_teams_report(
+                issues_data,
+                "test_owner",
+                "test_repo",
+                "https://test.webhook.office.com"
+            )
+            
+            assert result is False
+            assert mock_post.called
+
+    def test_send_teams_report_network_error(self, mock_env):
+        """Test Teams notification with network error."""
+        from src.main import send_teams_report
+        
+        issues_data = {
+            "total_open": 1,
+            "issues": [{
+                "number": 1,
+                "title": "Test",
+                "author": "user",
+                "assignee": "—",
+                "labels": [],
+                "opened_at": "2026-01-01",
+                "age_days": 1,
+                "last_updated_days_ago": 0,
+                "url": "https://github.com/test/test/issues/1"
+            }]
+        }
+        
+        with patch("src.main.requests.post") as mock_post:
+            mock_post.side_effect = Exception("Network error")
+            
+            result = send_teams_report(
+                issues_data,
+                "test_owner",
+                "test_repo",
+                "https://test.webhook.office.com"
+            )
+            
+            assert result is False
+
+    def test_send_teams_report_color_coding(self, mock_env):
+        """Test color coding based on issue count."""
+        from src.main import send_teams_report
+        
+        test_cases = [
+            (3, "Good"),      # 1-5 issues = Green
+            (15, "Warning"),  # 6-20 issues = Yellow
+            (50, "Attention") # 21+ issues = Red
+        ]
+        
+        for issue_count, expected_color in test_cases:
+            issues_data = {
+                "total_open": issue_count,
+                "issues": [{
+                    "number": i,
+                    "title": f"Issue {i}",
+                    "author": "user",
+                    "assignee": "—",
+                    "labels": [],
+                    "opened_at": "2026-01-01",
+                    "age_days": 1,
+                    "last_updated_days_ago": 0,
+                    "url": f"https://github.com/test/test/issues/{i}"
+                } for i in range(1, min(issue_count + 1, 6))]  # Only include first 5
+            }
+            
+            with patch("src.main.requests.post") as mock_post:
+                mock_response = Mock()
+                mock_response.status_code = 200
+                mock_post.return_value = mock_response
+                
+                result = send_teams_report(
+                    issues_data,
+                    "test_owner",
+                    "test_repo",
+                    "https://test.webhook.office.com"
+                )
+                
+                assert result is True
+                
+                # Verify color coding
+                call_args = mock_post.call_args
+                payload = call_args[1]["json"]
+                card_content = payload["attachments"][0]["content"]
+                status_container = card_content["body"][0]
+                
+                assert status_container["style"] == expected_color
+
+
 
