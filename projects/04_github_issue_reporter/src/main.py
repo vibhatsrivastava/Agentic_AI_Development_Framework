@@ -503,6 +503,7 @@ def list_recent_issues(owner: str, repo: str, hours: int = 24, token: Optional[s
 
     try:
         logger.info(f"Fetching issues opened in the last {hours} hours for {owner}/{repo}")
+        logger.info(f"Cutoff timestamp: {cutoff.isoformat()} (issues created before this will be excluded)")
         # Fetch recent issues (sorted by created, descending)
         resp = requests.get(
             f"https://api.github.com/repos/{owner}/{repo}/issues",
@@ -516,12 +517,14 @@ def list_recent_issues(owner: str, repo: str, hours: int = 24, token: Optional[s
         for issue in batch:
             # Exclude pull requests
             if "pull_request" in issue:
+                logger.debug(f"Skipping PR #{issue['number']}: {issue['title']}")
                 continue
             
             created_at = datetime.fromisoformat(issue["created_at"].replace("Z", "+00:00"))
             
             # Stop when we reach issues older than cutoff
             if created_at < cutoff:
+                logger.info(f"Stopping at issue #{issue['number']} (created {created_at.isoformat()}, before cutoff)")
                 break
             
             created = date.fromisoformat(issue["created_at"][:10])
@@ -529,7 +532,7 @@ def list_recent_issues(owner: str, repo: str, hours: int = 24, token: Optional[s
             assignee = issue["assignee"]["login"] if issue.get("assignee") else "Unassigned"
             labels = [lbl["name"] for lbl in issue.get("labels", [])]
 
-            logger.info(f"Recent issue #{issue['number']}: {issue['title']}")
+            logger.info(f"✓ Including issue #{issue['number']}: {issue['title']} (created {created_at.isoformat()})")
             issues.append({
                 "number": issue["number"],
                 "title": issue["title"],
@@ -1000,11 +1003,15 @@ def process_single_repo_issue(owner: str, repo: str, issue_number: int, token: s
         print(answer)
         print("="*80 + "\n")
         
-        logger.info("Issue analysis completed successfully")
+        summary = f"✅ Issue #{issue_number} analyzed and recommendation posted"
+        logger.info(summary)
+        return summary
         
     except Exception as e:
-        logger.error(f"Issue analysis failed: {e}")
-        print(f"\n❌ Issue analysis failed: {e}")
+        error_msg = f"Issue analysis failed: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        print(f"\n❌ {error_msg}")
+        return f"❌ {error_msg}"
     finally:
         # Restore original token
         if original_token is not None:
@@ -1044,15 +1051,17 @@ def process_single_repo_auto_analyze(owner: str, repo: str, token: str, dry_run:
         recent_data = json.loads(result)
         
         if "error" in recent_data:
-            print(f"\n❌ Error fetching recent issues: {recent_data['error']}")
-            return
+            error_msg = recent_data['error']
+            print(f"\n❌ Error fetching recent issues: {error_msg}")
+            return f"❌ Auto-analyze failed: {error_msg}"
         
         issues = recent_data.get("issues", [])
         total_found = len(issues)
         
         if total_found == 0:
             print("\n✅ No new issues opened in the last 24 hours.")
-            return
+            logger.info("Auto-analyze completed: 0 issues found in last 24 hours")
+            return "✅ Auto-analyze completed: 0 issues found in last 24 hours"
         
         print(f"\n📊 Found {total_found} issues opened in the last 24 hours")
         
@@ -1134,11 +1143,23 @@ def process_single_repo_auto_analyze(owner: str, repo: str, token: str, dry_run:
             print(f"Errors: {errors}")
         print("="*80 + "\n")
         
-        logger.info("Auto-analyze completed successfully")
+        # Build summary message for AWX
+        if dry_run:
+            summary = f"✅ Auto-analyze completed (DRY RUN): {analyzed} would be analyzed, {skipped} skipped, {total_found} total found (last 24h)"
+        else:
+            summary = f"✅ Auto-analyze completed: {posted} posted, {skipped} skipped, {total_found} total found (last 24h)"
+        
+        if errors > 0:
+            summary += f", {errors} errors"
+        
+        logger.info(summary)
+        return summary
         
     except Exception as e:
-        logger.error(f"Auto-analyze failed: {e}")
-        print(f"\n❌ Auto-analyze failed: {e}")
+        error_msg = f"Auto-analyze failed: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        print(f"\n❌ {error_msg}")
+        return f"❌ {error_msg}"
     finally:
         # Restore original token
         if original_token is not None:
@@ -1364,13 +1385,13 @@ def main():
     
     # Handle issue recommendation mode
     if args.issue:
-        process_single_repo_issue(owner, repo, args.issue, token)
-        return
+        result = process_single_repo_issue(owner, repo, args.issue, token)
+        return result
 
     # Handle auto-analyze mode
     if args.auto_analyze:
-        process_single_repo_auto_analyze(owner, repo, token, args.dry_run, args.max_issues)
-        return
+        result = process_single_repo_auto_analyze(owner, repo, token, args.dry_run, args.max_issues)
+        return result
 
 
 if __name__ == "__main__":
