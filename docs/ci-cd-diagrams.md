@@ -24,8 +24,7 @@ This document contains ASCII diagrams visualizing the CI/CD pipeline architectur
         │                   │  │   comments  │  │                │
         └─────────┬─────────┘  │   with      │  └────────┬───────┘
                   │            │   /implement│           │
-                  │            │   -plan or  │           │
-                  │            │   /approved │           │
+                  │            │   -plan     │           │
                   │            └──────┬──────┘           │
                   │                   │                  │
                   ▼                   ▼                  ▼
@@ -70,7 +69,6 @@ This document contains ASCII diagrams visualizing the CI/CD pipeline architectur
 │ • Options:                                                           │
 │   - branch=<branch-name>    (default: copilot/issue-N)             │
 │   - model=<llm-model>       (default: gpt-oss:20b)                 │
-│ • Alternative: /approved [options]                                  │
 └────────────────────────────────┬────────────────────────────────────┘
                                  │
                                  ▼
@@ -84,7 +82,7 @@ This document contains ASCII diagrams visualizing the CI/CD pipeline architectur
 │ └─ Result: ✅ Authorized / ❌ Unauthorized                          │
 │                                                                      │
 │ Step 2: Parse Command                                               │
-│ ├─ Check for /implement-plan or /approved                           │
+│ ├─ Check for /implement-plan                                        │
 │ ├─ Extract branch parameter (or use default)                        │
 │ ├─ Extract model parameter (or use default)                         │
 │ └─ Result: Command config object                                    │

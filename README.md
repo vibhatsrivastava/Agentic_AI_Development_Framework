@@ -223,7 +223,7 @@ projects/NN_project_name/
 
 ### Key Features
 
-- 🤖 **Auto-Implementation**: CODEOWNERS approve issues with `/implement-plan` or `/approved` commands
+- 🤖 **Auto-Implementation**: CODEOWNERS approve issues with `/implement-plan` command
 - 🔐 **Manual Production Approval**: Deployment to `main` requires CODEOWNER approval
 - 🌿 **Branch & Model Configuration**: Specify custom branch and LLM model for each implementation
 - 📋 **Context-Aware**: Collects all issue comments and feedback before implementation
@@ -236,7 +236,6 @@ projects/NN_project_name/
 # Trigger implementation (in issue comment, CODEOWNERS only)
 /implement-plan                                    # Uses defaults
 /implement-plan branch=feature/auth model=llama3.1:8b  # Custom config
-/approved branch=hotfix/security-fix               # Alternative command
 ```
 
 ### Documentation

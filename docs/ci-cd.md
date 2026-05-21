@@ -70,16 +70,16 @@ The CI/CD pipeline consists of three main workflows:
 ### 2. Copilot Implementation Workflow (`copilot-implement.yml`)
 
 **Triggers:**
-- Issue comments containing `/implement-plan` or `/approved`
+- Issue comments containing `/implement-plan`
 
 **Jobs:**
 - **validate-and-trigger**: Main orchestration job
   - Validates commenter is CODEOWNER
   - Parses optional parameters (branch, model)
   - Collects all issue context and comments
-  - Assigns issue to copilot
+  - Adds labels: `copilot-implementing`, `approved`
   - Posts implementation context
-  - Triggers GitHub Copilot (manual or automated)
+  - Prepares issue for GitHub Copilot Workspace (manual trigger required)
 
 **Command Format:**
 ```bash
@@ -94,9 +94,6 @@ The CI/CD pipeline consists of three main workflows:
 
 # With both parameters
 /implement-plan branch=feature/my-feature model=gpt-oss:20b
-
-# Alternative command
-/approved branch=hotfix/security-patch
 ```
 
 **Default Values:**
@@ -196,7 +193,7 @@ To enforce CODEOWNERS:
 /implement-plan model=llama3.1:8b
 
 # Both parameters
-/approved branch=feature/new-auth model=gpt-oss:20b
+/implement-plan branch=feature/new-auth model=gpt-oss:20b
 ```
 
 4. **System validates** the commenter is a CODEOWNER
@@ -205,11 +202,12 @@ To enforce CODEOWNERS:
    - All comments (including proposed changes)
    - Labels and metadata
 6. **System prepares implementation:**
-   - Assigns issue to copilot
    - Adds labels: `copilot-implementing`, `approved`
    - Posts confirmation with configuration
    - Creates implementation context comment
+   - **Note:** Issue is NOT automatically assigned (GitHub Copilot cannot be assigned as a user)
 7. **Implementation happens:**
+   - **Manually open issue in GitHub Copilot Workspace**, OR
    - GitHub Copilot (or manual developer) implements on specified branch
    - Creates pull request
    - CODEOWNERS are requested for review
