@@ -640,7 +640,181 @@ def format_report(issues_data: dict) -> str:
     return "\n".join(lines)
 
 
-def process_single_repo_report(owner: str, repo: str, token: str):
+def send_teams_report(issues_data: dict, owner: str, repo: str, webhook_url: str) -> bool:
+    """
+    Send issue report to Microsoft Teams using adaptive cards.
+    
+    Args:
+        issues_data: Dictionary with 'total_open' and 'issues' list
+        owner: Repository owner
+        repo: Repository name
+        webhook_url: Microsoft Teams webhook URL
+    
+    Returns:
+        True if notification sent successfully, False otherwise
+    """
+    try:
+        issues = issues_data.get("issues", [])
+        total = issues_data.get("total_open", 0)
+        
+        # Determine status and color
+        if total == 0:
+            status_text = "🎉 No Open Issues"
+            color = "Good"
+            summary = "All issues have been resolved!"
+        elif total <= 5:
+            status_text = f"✅ {total} Open Issue{'s' if total != 1 else ''}"
+            color = "Good"
+            summary = f"{total} open issue{'s' if total != 1 else ''} in the repository"
+        elif total <= 20:
+            status_text = f"⚠️ {total} Open Issues"
+            color = "Warning"
+            summary = f"{total} open issues require attention"
+        else:
+            status_text = f"🚨 {total} Open Issues"
+            color = "Attention"
+            summary = f"{total} open issues - consider triage and prioritization"
+        
+        # Calculate stats
+        max_age = max(issue["age_days"] for issue in issues) if issues else 0
+        bug_count = sum(1 for issue in issues if "bug" in [label.lower() for label in issue.get("labels", [])])
+        enhancement_count = sum(1 for issue in issues if any(label.lower() in ["enhancement", "feature"] for label in issue.get("labels", [])))
+        
+        # Build issue list (top 5 for brevity)
+        issue_list_items = []
+        for issue in issues[:5]:
+            labels_str = ", ".join(issue["labels"][:3]) if issue["labels"] else "none"
+            if len(issue["labels"]) > 3:
+                labels_str += f" +{len(issue['labels']) - 3}"
+            
+            issue_list_items.append({
+                "type": "TextBlock",
+                "text": f"**[#{issue['number']}]({issue['url']})** {issue['title'][:80]}{'...' if len(issue['title']) > 80 else ''}",
+                "wrap": True,
+                "spacing": "Small"
+            })
+            issue_list_items.append({
+                "type": "TextBlock",
+                "text": f"👤 {issue['author']} | 🏷️ {labels_str} | 📅 {issue['age_days']} days old",
+                "wrap": True,
+                "isSubtle": True,
+                "spacing": "None",
+                "size": "Small"
+            })
+        
+        # Add "and N more" text if there are more than 5 issues
+        if total > 5:
+            issue_list_items.append({
+                "type": "TextBlock",
+                "text": f"_...and {total - 5} more issue{'s' if total - 5 != 1 else ''}_",
+                "wrap": True,
+                "isSubtle": True,
+                "spacing": "Small",
+                "size": "Small"
+            })
+        
+        # Build adaptive card
+        adaptive_card = {
+            "type": "message",
+            "attachments": [{
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "contentUrl": None,
+                "content": {
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    "type": "AdaptiveCard",
+                    "version": "1.4",
+                    "body": [
+                        {
+                            "type": "Container",
+                            "style": color,
+                            "items": [{
+                                "type": "TextBlock",
+                                "text": status_text,
+                                "weight": "Bolder",
+                                "size": "Large"
+                            }]
+                        },
+                        {
+                            "type": "Container",
+                            "items": [
+                                {
+                                    "type": "TextBlock",
+                                    "text": f"**{owner}/{repo}**",
+                                    "wrap": True,
+                                    "size": "Medium",
+                                    "weight": "Bolder"
+                                },
+                                {
+                                    "type": "TextBlock",
+                                    "text": summary,
+                                    "wrap": True,
+                                    "spacing": "Small"
+                                }
+                            ]
+                        },
+                        {
+                            "type": "FactSet",
+                            "facts": [
+                                {"title": "Total Issues:", "value": str(total)},
+                                {"title": "Bugs:", "value": str(bug_count)},
+                                {"title": "Enhancements:", "value": str(enhancement_count)},
+                                {"title": "Oldest Issue:", "value": f"{max_age} days"}
+                            ]
+                        }
+                    ],
+                    "actions": [
+                        {
+                            "type": "Action.OpenUrl",
+                            "title": "View All Issues",
+                            "url": f"https://github.com/{owner}/{repo}/issues"
+                        },
+                        {
+                            "type": "Action.OpenUrl",
+                            "title": "View Repository",
+                            "url": f"https://github.com/{owner}/{repo}"
+                        }
+                    ]
+                }
+            }]
+        }
+        
+        # Add issue list if there are issues
+        if issue_list_items:
+            adaptive_card["attachments"][0]["content"]["body"].insert(3, {
+                "type": "Container",
+                "separator": True,
+                "items": [
+                    {
+                        "type": "TextBlock",
+                        "text": "**Recent Issues**",
+                        "weight": "Bolder",
+                        "size": "Medium"
+                    }
+                ] + issue_list_items
+            })
+        
+        # Send to Teams
+        logger.info(f"Sending report to Microsoft Teams for {owner}/{repo}")
+        response = requests.post(
+            webhook_url,
+            json=adaptive_card,
+            headers={"Content-Type": "application/json"},
+            timeout=10
+        )
+        
+        if response.status_code in [200, 201]:
+            logger.info("✅ Successfully sent report to Microsoft Teams")
+            return True
+        else:
+            logger.error(f"Failed to send Teams notification: HTTP {response.status_code} - {response.text}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Error sending Teams notification: {e}")
+        return False
+
+
+def process_single_repo_report(owner: str, repo: str, token: str, send_teams: bool = False):
     """
     Process report mode for a single repository.
     
@@ -648,6 +822,7 @@ def process_single_repo_report(owner: str, repo: str, token: str):
         owner: Repository owner
         repo: Repository name
         token: GitHub API token
+        send_teams: Whether to send report to Microsoft Teams
     """
     logger.info(f"Running in REPORT mode for {owner}/{repo}")
     try:
@@ -658,6 +833,18 @@ def process_single_repo_report(owner: str, repo: str, token: str):
         print("\n" + "="*80)
         print(report)
         print("="*80 + "\n")
+        
+        # Send to Teams if requested
+        if send_teams:
+            webhook_url = os.getenv("MS_TEAMS_WEBHOOK_URL")
+            if webhook_url:
+                if send_teams_report(issues_data, owner, repo, webhook_url):
+                    print("✅ Report sent to Microsoft Teams")
+                else:
+                    print("⚠️ Failed to send report to Microsoft Teams (check logs)")
+            else:
+                logger.warning("MS_TEAMS_WEBHOOK_URL not configured - skipping Teams notification")
+                print("⚠️ MS_TEAMS_WEBHOOK_URL not configured - skipping Teams notification")
         
         logger.info("Report generation completed successfully")
     except Exception as e:
@@ -918,6 +1105,8 @@ def main():
                 self.auto_analyze = (mode == "auto-analyze")
                 self.dry_run = dry_run
                 self.max_issues = max_issues
+                # Support SEND_TEAMS environment variable for AWX mode
+                self.send_teams = os.getenv("SEND_TEAMS", "false").lower() == "true"
         
         args = AWXArgs(mode, issue_number, dry_run, max_issues)
         
@@ -929,12 +1118,14 @@ def main():
             epilog="""Examples:
   # Single repository mode (using environment variables)
   python src/main.py --report
+  python src/main.py --report --send-teams
   python src/main.py --issue 42
   python src/main.py --auto-analyze
   python src/main.py --auto-analyze --dry-run
 
   # Multi-repository mode (using repos.json configuration)
   python src/main.py --report --repos-config repos.json
+  python src/main.py --report --send-teams --repos-config repos.json
   python src/main.py --issue 42 --repos-config repos.json
   python src/main.py --auto-analyze --repos-config repos.json
         """
@@ -976,6 +1167,11 @@ def main():
             metavar="PATH",
             help="Path to repos.json configuration file for multi-repository processing"
         )
+        parser.add_argument(
+            "--send-teams",
+            action="store_true",
+            help="Send report to Microsoft Teams using adaptive cards (only with --report)"
+        )
         
         args = parser.parse_args()
 
@@ -986,6 +1182,8 @@ def main():
             parser.error("--dry-run can only be used with --auto-analyze")
         if args.max_issues <= 0:
             parser.error("--max-issues must be a positive integer")
+        if hasattr(args, 'send_teams') and args.send_teams and not args.report:
+            parser.error("--send-teams can only be used with --report")
 
     # Multi-repository mode: Process multiple repositories from config file
     if not awx_mode and hasattr(args, 'repos_config') and args.repos_config:
@@ -1015,7 +1213,8 @@ def main():
                 
                 # Process this repository based on mode
                 if args.report:
-                    process_single_repo_report(owner, repo, token)
+                    send_teams = hasattr(args, 'send_teams') and args.send_teams
+                    process_single_repo_report(owner, repo, token, send_teams)
                 elif args.issue:
                     process_single_repo_issue(owner, repo, args.issue, token)
                 elif args.auto_analyze:
@@ -1051,7 +1250,8 @@ def main():
             logger.error("GITHUB_TOKEN environment variable not set")
             print("\n❌ GITHUB_TOKEN environment variable not set")
             return
-        process_single_repo_report(owner, repo, token)
+        send_teams = hasattr(args, 'send_teams') and args.send_teams
+        process_single_repo_report(owner, repo, token, send_teams)
         return
 
     # For issue and auto-analyze modes, get token from env
