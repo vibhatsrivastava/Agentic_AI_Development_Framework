@@ -217,31 +217,34 @@ projects/NN_project_name/
 
 ---
 
-## 🔄 CI/CD Pipeline
+## 🔄 CI/CD Pipeline & GitHub Copilot Integration
 
-**Automated implementation and deployment** powered by GitHub Actions with CODEOWNERS approval workflow.
+**Automated implementation and deployment** powered by GitHub Actions with CODEOWNERS approval workflow and **GitHub Copilot Workspace integration**.
 
 ### Key Features
 
-- 🤖 **Auto-Implementation**: CODEOWNERS approve issues with `/implement-plan` command
-- 🔐 **Manual Production Approval**: Deployment to `main` requires CODEOWNER approval
-- 🌿 **Branch & Model Configuration**: Specify custom branch and LLM model for each implementation
-- 📋 **Context-Aware**: Collects all issue comments and feedback before implementation
+- 🤖 **GitHub Copilot Integration**: Assign issues to Copilot for automated implementation with `/implement-plan`
+- 🔐 **Permission-Based**: Only CODEOWNERS can trigger Copilot implementation
+- 📋 **Context-Aware**: Collects all issue comments and repository conventions for Copilot
+- 🧪 **Automated Testing**: Copilot generates tests with >=75% coverage requirement
 - 🚀 **Automated Staging**: Deploy to staging automatically from `dev` branch
 - 📢 **Teams Notifications**: Rich adaptive card notifications in Microsoft Teams for PR events
+- 🌿 **Flexible Configuration**: Customize branch names and LLM models per issue
 
 ### Quick Commands
 
 ```bash
-# Trigger implementation (in issue comment, CODEOWNERS only)
+# Trigger GitHub Copilot implementation (in issue comment, CODEOWNERS only)
 /implement-plan                                    # Uses defaults
-/implement-plan branch=feature/auth model=llama3.1:8b  # Custom config
+/implement-plan branch=feature/auth model=gpt-4.1  # Custom config
 ```
 
 ### Documentation
 
 | Guide | Description |
 |-------|-------------|
+| **[GitHub Copilot Integration](docs/github-copilot-integration.md)** | Complete guide for using GitHub Copilot Workspace with this repository |
+| **[GitHub Copilot Quick Reference](Quick-Reference/05_GitHub_Copilot_Workspace_Integration.md)** | Learning guide with best practices and interview Q&A |
 | **[CI/CD Overview](docs/ci-cd.md)** | Complete pipeline documentation, workflows, security |
 | **[Quick Reference](docs/ci-cd-quickref.md)** | Quick commands, troubleshooting, common tasks |
 | **[Teams Notifications](docs/teams-notifications.md)** | Microsoft Teams PR notifications setup and configuration |
@@ -270,6 +273,7 @@ projects/NN_project_name/
 | [Quick-Reference/02_ReAct_Pattern_Deep_Dive.md](Quick-Reference/02_ReAct_Pattern_Deep_Dive.md) | Reason + Act pattern, implementation guide |
 | [Quick-Reference/03_RAG_Retrieval_Augmented_Generation.md](Quick-Reference/03_RAG_Retrieval_Augmented_Generation.md) | RAG pipeline, vector stores, embeddings |
 | [Quick-Reference/04_Ollama.md](Quick-Reference/04_Ollama.md) | Ollama setup, API reference, model management |
+| [Quick-Reference/05_GitHub_Copilot_Workspace_Integration.md](Quick-Reference/05_GitHub_Copilot_Workspace_Integration.md) | GitHub Copilot Workspace integration, workflow, best practices |
 
 ---
 

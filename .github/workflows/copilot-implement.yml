@@ -177,18 +177,30 @@ jobs:
           script: |
             // Add labels to track implementation status
             // These labels indicate the issue is ready for Copilot implementation
+            const labelsToAdd = [
+              'copilot-implementing',
+              'approved',
+              'ready-for-copilot'
+            ];
+            
             await github.rest.issues.addLabels({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              labels: ['copilot-implementing', 'approved']
+              labels: labelsToAdd
             }).catch(err => {
               console.log('Note: Could not add labels:', err.message);
+              console.log('Labels may need to be created in repository settings');
             });
+            
+            // Add metadata to help GitHub Copilot Workspace
+            console.log('✅ Issue labeled for GitHub Copilot implementation');
+            console.log(`📋 Labels added: ${labelsToAdd.join(', ')}`);
+            console.log('🤖 Ready for GitHub Copilot Workspace');
             
             // Note: GitHub Copilot Workspace cannot be assigned as a user
             // The issue remains unassigned until opened in Copilot Workspace
-            console.log('Issue ready for GitHub Copilot Workspace implementation');
+            console.log('💡 Tip: Click "Open in Copilot Workspace" button to begin');
       
       - name: Post confirmation comment
         if: |
@@ -212,31 +224,108 @@ jobs:
               - 🌿 **Branch:** \`${branch}\`
               - 🤖 **Model:** \`${model}\`
               - 👤 **Approver:** @${{ github.event.comment.user.login }}
-              - 🏷️ **Labels:** \`copilot-implementing\`, \`approved\`
-              
-              ## 🚀 How to Implement with GitHub Copilot
-              
-              **Option 1: GitHub Copilot Workspace (Recommended)**
-              1. Click the **"Open in Copilot Workspace"** button on this issue (requires GitHub Copilot license)
-              2. Copilot will automatically read all context and comments below
-              3. Review and approve Copilot's implementation plan
-              4. Copilot creates branch \`${branch}\` and opens a PR
-              
-              **Option 2: VS Code with GitHub Copilot**
-              1. Open this repository in VS Code
-              2. Use GitHub Copilot Chat: "Implement issue #${{ github.event.issue.number }}"
-              3. Create branch \`${branch}\` and commit changes
-              4. Push and create a PR
-              
-              **Option 3: Manual Implementation**
-              1. Review the implementation context comment below
-              2. Create branch \`${branch}\`
-              3. Implement the solution
-              4. Create a PR with your changes
+              - 🏷️ **Labels:** \`copilot-implementing\`, \`approved\`, \`ready-for-copilot\`
               
               ---
               
-              📋 *All issue context and comments have been collected below for Copilot analysis*`
+              ## 🚀 Three Ways to Implement
+              
+              ### Option 1: GitHub Copilot Workspace (Recommended) ⭐
+              
+              **Prerequisites:**
+              - GitHub Copilot license (Individual or Business)
+              - Repository access with Copilot enabled
+              
+              **Steps:**
+              1. Click the **"Open in Copilot Workspace"** button at the top of this issue page
+                 - If button is not visible, you may need to enable Copilot for this repository in Settings
+              2. Review the issue context that Copilot loads automatically
+              3. Approve Copilot's implementation plan
+              4. Copilot will:
+                 - Create branch: \`${branch}\`
+                 - Write production-ready code following repository conventions
+                 - Generate comprehensive tests (>=75% coverage requirement)
+                 - Update documentation as needed
+                 - Open a pull request automatically
+              
+              **What Copilot Knows:**
+              - All issue comments and context below
+              - Repository structure and coding conventions (from \`.github/copilot-instructions.md\`)
+              - Testing requirements (75% coverage minimum)
+              - Common patterns (LCEL chains, LangGraph agents, common/ package usage)
+              
+              **Benefits:**
+              - ⚡ Fastest implementation (40-60% time savings)
+              - ✅ Follows repository conventions automatically
+              - 🧪 Generates comprehensive test suites
+              - 📝 Updates documentation
+              
+              ---
+              
+              ### Option 2: VS Code with GitHub Copilot
+              
+              **Prerequisites:**
+              - VS Code with GitHub Copilot extension
+              - Repository cloned locally
+              
+              **Steps:**
+              1. Open this repository in VS Code
+              2. Open GitHub Copilot Chat panel
+              3. Reference this issue: \`@workspace Implement issue #${{ github.event.issue.number }}\`
+              4. Copilot will suggest implementation approach
+              5. Create branch: \`${branch}\`
+              6. Implement with Copilot's assistance
+              7. Commit, push, and create PR manually
+              
+              **Benefits:**
+              - 💻 Work in familiar IDE environment
+              - 🔄 More control over each step
+              - 🎯 Good for complex or iterative implementations
+              
+              ---
+              
+              ### Option 3: Manual Implementation
+              
+              **For developers without Copilot access:**
+              
+              **Steps:**
+              1. Review implementation context in the comment below
+              2. Create branch: \`git checkout -b ${branch}\`
+              3. Implement according to acceptance criteria
+              4. Follow repository conventions (see \`.github/copilot-instructions.md\`)
+              5. Write tests (maintain >=75% coverage)
+              6. Run: \`pytest --cov --cov-fail-under=75\`
+              7. Create PR to \`dev\` branch
+              
+              **Repository Conventions:**
+              - Use \`common/\` package for LLM initialization
+              - Follow LCEL pattern for chain composition (\`prompt | llm | parser\`)
+              - Use LangGraph \`create_react_agent\` for new agents
+              - Maintain 75% test coverage minimum
+              - Mock all LLM calls in tests
+              
+              ---
+              
+              ## 📚 Documentation
+              
+              - **Quick Guide:** [GitHub Copilot Integration](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/github-copilot-integration.md)
+              - **Detailed Reference:** [GitHub Copilot Workspace](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/Quick-Reference/05_GitHub_Copilot_Workspace_Integration.md)
+              - **CI/CD Quick Reference:** [CI/CD Commands](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/ci-cd-quickref.md)
+              - **Testing Strategy:** [Testing Guide](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/TESTING_STRATEGY.md)
+              
+              ---
+              
+              ## 💡 Tips for Success
+              
+              1. **Review all comments below** - Copilot reads everything
+              2. **Check the implementation plan** before approving in Copilot Workspace
+              3. **Test the PR** - CI will run automatically, but manual testing is recommended
+              4. **Iterate if needed** - Comment on PR with requested changes, Copilot can refine
+              5. **Follow up** - Copilot works best with clear, specific feedback
+              
+              ---
+              
+              📋 *All issue context has been collected and is ready for GitHub Copilot Workspace*`
             });
       
       - name: Trigger GitHub Copilot Workspace

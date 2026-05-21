@@ -257,6 +257,15 @@ See [`docs/ci-cd.md`](ci-cd.md) for complete documentation including:
 - Advanced configuration
 - Complete troubleshooting guide
 
+### GitHub Copilot Integration
+
+**New!** This repository now supports GitHub Copilot Workspace for automated issue implementation:
+
+- **[GitHub Copilot Integration Guide](github-copilot-integration.md)** — Complete setup and usage guide
+- **[GitHub Copilot Quick Reference](../Quick-Reference/05_GitHub_Copilot_Workspace_Integration.md)** — Learning guide with best practices and interview Q&A
+
+See how to assign issues to GitHub Copilot and get fully tested PRs in return!
+
 ### Microsoft Teams Notifications
 
 See [`docs/teams-notifications.md`](teams-notifications.md) for Teams integration:
@@ -289,4 +298,4 @@ Quick reference: [`docs/teams-notifications-quickref.md`](teams-notifications-qu
 
 ---
 
-*Quick Reference v1.0 | Last updated: 2026-05-15*
+*Quick Reference v1.1 | Last updated: 2026-05-21*
