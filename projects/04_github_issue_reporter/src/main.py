@@ -558,6 +558,158 @@ def list_recent_issues(owner: str, repo: str, hours: int = 24, token: Optional[s
         return json.dumps({"error": error_msg})
 
 
+def send_teams_notification(owner: str, repo: str, issue_number: int, issue_title: str, issue_url: str, comment_url: str) -> bool:
+    """
+    Send a Microsoft Teams notification when issue analysis completes.
+    
+    Uses adaptive cards to create a rich notification with a button to view the issue.
+    Reads MS_TEAMS_WEBHOOK_URL from environment variables.
+    
+    Args:
+        owner: Repository owner
+        repo: Repository name
+        issue_number: Issue number
+        issue_title: Issue title
+        issue_url: URL to the GitHub issue
+        comment_url: URL to the posted comment
+    
+    Returns:
+        True if notification sent successfully, False otherwise
+    """
+    webhook_url = os.getenv("MS_TEAMS_WEBHOOK_URL")
+    
+    # If webhook URL is not configured, skip notification (optional feature)
+    if not webhook_url:
+        logger.debug("MS_TEAMS_WEBHOOK_URL not configured, skipping Teams notification")
+        return False
+    
+    try:
+        # Create adaptive card payload
+        payload = {
+            "type": "message",
+            "attachments": [
+                {
+                    "contentType": "application/vnd.microsoft.card.adaptive",
+                    "contentUrl": None,
+                    "content": {
+                        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                        "type": "AdaptiveCard",
+                        "version": "1.4",
+                        "body": [
+                            {
+                                "type": "Container",
+                                "style": "Good",  # Green color for success
+                                "items": [
+                                    {
+                                        "type": "ColumnSet",
+                                        "columns": [
+                                            {
+                                                "type": "Column",
+                                                "width": "auto",
+                                                "items": [
+                                                    {
+                                                        "type": "TextBlock",
+                                                        "text": "🤖",
+                                                        "size": "ExtraLarge"
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                "type": "Column",
+                                                "width": "stretch",
+                                                "items": [
+                                                    {
+                                                        "type": "TextBlock",
+                                                        "text": "✅ AI Analysis Complete",
+                                                        "weight": "Bolder",
+                                                        "size": "Large"
+                                                    },
+                                                    {
+                                                        "type": "TextBlock",
+                                                        "text": "GitHub Issue Reporter Agent",
+                                                        "spacing": "None",
+                                                        "isSubtle": True
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    }
+                                ]
+                            },
+                            {
+                                "type": "Container",
+                                "items": [
+                                    {
+                                        "type": "TextBlock",
+                                        "text": f"**[Issue #{issue_number}]({issue_url}):** {issue_title}",
+                                        "wrap": True,
+                                        "size": "Medium",
+                                        "weight": "Bolder"
+                                    },
+                                    {
+                                        "type": "TextBlock",
+                                        "text": "The AI agent has analyzed this issue and posted recommendations to GitHub.",
+                                        "wrap": True,
+                                        "spacing": "Small"
+                                    }
+                                ]
+                            },
+                            {
+                                "type": "FactSet",
+                                "facts": [
+                                    {
+                                        "title": "Repository:",
+                                        "value": f"{owner}/{repo}"
+                                    },
+                                    {
+                                        "title": "Issue Number:",
+                                        "value": f"#{issue_number}"
+                                    },
+                                    {
+                                        "title": "Status:",
+                                        "value": "Analysis Posted"
+                                    }
+                                ]
+                            }
+                        ],
+                        "actions": [
+                            {
+                                "type": "Action.OpenUrl",
+                                "title": "View Issue on GitHub",
+                                "url": issue_url
+                            },
+                            {
+                                "type": "Action.OpenUrl",
+                                "title": "View AI Recommendation",
+                                "url": comment_url
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+        
+        # Send notification to Teams
+        logger.info(f"Sending Teams notification for issue #{issue_number}")
+        response = requests.post(
+            webhook_url,
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=10
+        )
+        response.raise_for_status()
+        
+        logger.info(f"✅ Successfully sent Teams notification for issue #{issue_number}")
+        return True
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Failed to send Teams notification: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"Unexpected error sending Teams notification: {e}")
+        return False
+
+
 def build_agent():
     """
     Build the GitHub Issue Reporter ReAct agent.
@@ -714,6 +866,39 @@ def process_single_repo_issue(owner: str, repo: str, issue_number: int, token: s
         
         logger.info("Issue analysis completed successfully")
         
+        # Send Teams notification if comment was posted successfully
+        if is_valid_github_issue_url(answer):
+            # Fetch issue details for notification
+            try:
+                issue_details_json = get_issue_details.invoke({
+                    "owner": owner,
+                    "repo": repo,
+                    "issue_number": issue_number,
+                })
+                issue_details = json.loads(issue_details_json)
+                issue_title = issue_details.get("title", f"Issue #{issue_number}")
+                issue_url = issue_details.get("html_url", f"https://github.com/{owner}/{repo}/issues/{issue_number}")
+                
+                # Extract comment URL from answer (it should contain the GitHub issue comment URL)
+                comment_url = answer.strip() if is_valid_github_issue_url(answer.strip()) else issue_url
+                
+                # Send Teams notification
+                teams_sent = send_teams_notification(
+                    owner=owner,
+                    repo=repo,
+                    issue_number=issue_number,
+                    issue_title=issue_title,
+                    issue_url=issue_url,
+                    comment_url=comment_url
+                )
+                
+                if teams_sent:
+                    print("📢 Teams notification sent successfully")
+                    
+            except Exception as e:
+                logger.warning(f"Failed to send Teams notification (non-critical): {e}")
+                print(f"⚠️  Teams notification failed (non-critical): {e}")
+        
     except Exception as e:
         logger.error(f"Issue analysis failed: {e}")
         print(f"\n❌ Issue analysis failed: {e}")
@@ -823,6 +1008,27 @@ def process_single_repo_auto_analyze(owner: str, repo: str, token: str, dry_run:
                 # Check if the response contains a valid GitHub issue URL
                 if is_valid_github_issue_url(answer):
                     print(f"   {answer}")
+                    
+                    # Send Teams notification
+                    try:
+                        issue_title = issue["title"]
+                        issue_url = issue["html_url"]
+                        comment_url = answer.strip() if is_valid_github_issue_url(answer.strip()) else issue_url
+                        
+                        teams_sent = send_teams_notification(
+                            owner=owner,
+                            repo=repo,
+                            issue_number=issue_num,
+                            issue_title=issue_title,
+                            issue_url=issue_url,
+                            comment_url=comment_url
+                        )
+                        
+                        if teams_sent:
+                            print(f"   📢 Teams notification sent")
+                            
+                    except Exception as e:
+                        logger.warning(f"Failed to send Teams notification (non-critical): {e}")
                 
                 analyzed += 1
                 posted += 1

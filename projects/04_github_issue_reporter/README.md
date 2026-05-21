@@ -62,6 +62,14 @@ This agent uses LangGraph's ReAct (Reasoning + Acting) pattern to orchestrate mu
 - **NEW:** Posts recommendations directly to GitHub as collapsible comments
 - **NEW:** Duplicate detection prevents redundant bot comments
 
+✅ **Microsoft Teams Notifications** (NEW)
+- Sends rich adaptive card notifications to Teams when analysis completes
+- Includes issue title, number, repository, and analysis status
+- Provides direct links to GitHub issue and AI recommendation
+- Optional feature (only enabled when webhook URL is configured)
+- Non-critical failure handling (notification errors don't break agent)
+- Beautiful card UI with emojis and color-coded status
+
 ✅ **Automated Batch Processing**
 - **NEW:** Auto-analyze mode discovers and processes new issues automatically
 - Filters issues by creation time (last 24 hours)
@@ -356,6 +364,9 @@ LOG_LEVEL=INFO
 GITHUB_TOKEN=ghp_your_personal_access_token_here
 GITHUB_REPO_OWNER=your_github_username_or_org
 GITHUB_REPO_NAME=your_repository_name
+
+# === Microsoft Teams Notifications (Optional) ===
+MS_TEAMS_WEBHOOK_URL=https://your-org.webhook.office.com/webhookb2/your-webhook-url
 ```
 
 Create the project `.env` file from the example:
@@ -375,10 +386,25 @@ notepad .env
 | `GITHUB_TOKEN` | ✅ Yes | GitHub Personal Access Token | `ghp_abc123...` |
 | `GITHUB_REPO_OWNER` | ✅ Yes | Repository owner (user or org) | `your_github_username` |
 | `GITHUB_REPO_NAME` | ✅ Yes | Repository name | `your_repository_name` |
+| `MS_TEAMS_WEBHOOK_URL` | ❌ Optional | Teams incoming webhook URL | `https://your-org.webhook...` |
 | `OLLAMA_BASE_URL` | ✅ Yes | Ollama server URL | `http://localhost:11434` |
 | `OLLAMA_API_KEY` | ⚠️ Conditional | Required for remote Ollama | `Bearer token` |
 | `OLLAMA_MODEL` | ✅ Yes | LLM model name | `llama3.2:3b` |
 | `LOG_LEVEL` | ❌ Optional | Logging verbosity | `INFO`, `DEBUG` |
+
+### Microsoft Teams Webhook Setup
+
+To enable Teams notifications, you need to create an incoming webhook in your Teams channel:
+
+1. **Open Microsoft Teams** and navigate to your desired channel
+2. **Click the "..." menu** next to the channel name → **Connectors**
+3. **Search for "Incoming Webhook"** and click **Configure**
+4. **Name the webhook** (e.g., "GitHub Issue Reporter Bot")
+5. **Upload an icon** (optional) and click **Create**
+6. **Copy the webhook URL** provided
+7. **Paste the URL** into `MS_TEAMS_WEBHOOK_URL` in your `.env` file
+
+**Note:** If `MS_TEAMS_WEBHOOK_URL` is not configured, the agent will skip Teams notifications without error. This feature is completely optional.
 
 ### Security Best Practices
 
