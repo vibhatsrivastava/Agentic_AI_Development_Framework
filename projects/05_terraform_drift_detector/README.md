@@ -287,6 +287,46 @@ pytest --cov --cov-fail-under=75
 
 ---
 
+## Manual Integration Testing
+
+To test the agent end-to-end with real AWS resources, use the provided test infrastructure:
+
+### Quick Start
+
+```powershell
+# 1. Provision test EC2 instance with tags
+cd test_infrastructure
+terraform init
+terraform apply
+
+# 2. Manually remove a tag in AWS Console to simulate drift
+
+# 3. Run the agent to detect drift
+cd ..
+python src/main.py --state-file test_infrastructure/terraform.tfstate
+
+# 4. Clean up resources
+cd test_infrastructure
+terraform destroy
+```
+
+### Detailed Testing Guide
+
+See [test_infrastructure/README.md](test_infrastructure/README.md) for:
+- **Prerequisites:** AWS CLI setup, Terraform installation, IAM permissions
+- **Cost information:** Free Tier eligibility, estimated costs
+- **Step-by-step workflow:** EC2 provisioning → manual drift simulation → agent execution → cleanup
+- **Expected results:** Sample agent output with drift detection and policy violations
+- **Troubleshooting:** Common issues and solutions
+
+**Why use test infrastructure?**
+- ✅ **Isolated testing:** Self-contained AWS resources that won't affect production
+- ✅ **Reproducible drift:** Controlled environment to simulate specific drift scenarios
+- ✅ **Cost-effective:** Uses Free Tier eligible resources (t2.micro EC2 instance)
+- ✅ **Independent:** Can be deleted after testing without breaking the agent
+
+---
+
 ## Security Considerations
 
 1. **Terraform state secrets:** Sensitive attributes (passwords, API keys) are redacted before passing to LLM. State files marked with `"sensitive": true"` have values replaced with `[REDACTED]`.

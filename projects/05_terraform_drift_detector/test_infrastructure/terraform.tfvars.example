@@ -1,0 +1,13 @@
+# Example Terraform variables file
+# Copy this file to terraform.tfvars and customize values as needed
+
+# AWS region to deploy resources
+aws_region = "us-east-1"
+
+# EC2 instance configuration
+instance_type = "t2.micro"
+instance_name = "drift-detector-test-instance"
+
+# Tags (these will be validated by the drift detector agent)
+environment = "production"
+owner       = "test-user"
