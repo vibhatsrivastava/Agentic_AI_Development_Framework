@@ -40,6 +40,18 @@ This agent uses LangGraph's ReAct (Reasoning + Acting) pattern to orchestrate mu
 
 ---
 
+## 🚀 Deployment Options
+
+This agent can be deployed in multiple ways depending on your needs:
+
+- **🏆 Ansible AWX** (Recommended for Production): Centralized execution platform with scheduled automation, webhook triggers, and secure credential management. No local Python setup required. Already have AWX? [Jump to AWX setup →](#ansible-awx-deployment--recommended-for-production)
+- **💻 Local CLI**: For development, testing, and one-off analysis. Requires Python 3.11+ and local environment setup. [See Installation →](#installation--setup)
+- **🔄 GitHub Actions**: For repository-specific automation integrated with your CI/CD pipeline. [See GitHub Actions →](#cicd-integration-github-actions)
+
+See the [Deployment](#deployment) section for detailed setup guides for each option.
+
+---
+
 ## Features
 
 ### Core Capabilities
@@ -152,9 +164,50 @@ This agent uses LangGraph's ReAct (Reasoning + Acting) pattern to orchestrate mu
    - Design considerations for complex changes
    - Test coverage recommendations
 
+### For DevOps/Platform Teams
+
+1. **Centralized Execution Platform**
+   - AWX eliminates "works on my machine" problems
+   - Developers access via UI — no local Python/venv setup required
+   - Consistent execution environment across all runs
+   - Single source of truth for agent configuration
+
+2. **Automated Workflow Orchestration**
+   - Scheduled automation (daily auto-analyze, weekly reports)
+   - Webhook integration (analyze issues as they're created)
+   - Parallel multi-repository processing from one job template
+   - Integration with existing Ansible Tower/AWX infrastructure
+
+3. **Enterprise Security & Compliance**
+   - Secure credential management (no `.env` files on developer machines)
+   - Role-based access control (limit who can trigger jobs)
+   - Job history and audit trails for compliance
+   - Credential rotation without code changes
+
+4. **Operational Visibility**
+   - Real-time job execution monitoring
+   - Historical success/failure rates for SLA tracking
+   - Centralized logging and error diagnostics
+   - Integration with monitoring systems (Prometheus, Grafana)
+
 ---
 
 ## Architecture
+
+### Deployment Comparison
+
+Choose the deployment approach that best fits your use case:
+
+| Deployment Type | Best For | Pros | Cons | Setup Complexity |
+|---|---|---|---|---|
+| **🏆 Ansible AWX** | Production automation, team environments | ✅ Centralized execution<br>✅ Scheduled automation<br>✅ Webhook triggers<br>✅ Secure credential mgmt<br>✅ Job history & audit trails<br>✅ No local setup for users | ❌ Requires AWX infrastructure<br>❌ Initial setup effort | ⭐⭐⭐ Medium (one-time) |
+| **Local CLI** | Development, testing, one-off analysis | ✅ Quick start<br>✅ Full control<br>✅ Easy debugging<br>✅ No external dependencies | ❌ Manual execution<br>❌ Environment setup per machine<br>❌ No audit trail | ⭐⭐ Easy |
+| **GitHub Actions** | Repo-specific automation | ✅ Native GitHub integration<br>✅ Free for public repos<br>✅ Version controlled workflows | ❌ Limited to GitHub ecosystem<br>❌ Secrets per repository<br>❌ No cross-repo orchestration | ⭐⭐ Easy |
+| **Docker** | Containerized environments | ✅ Isolated execution<br>✅ Portable across systems<br>✅ Reproducible builds | ❌ Container registry needed<br>❌ Manual orchestration<br>❌ No built-in scheduling | ⭐⭐⭐ Medium |
+
+**Recommendation**: Use **AWX for production** (scheduled automation, multi-repo processing) and **Local CLI for development** (debugging, testing new features).
+
+---
 
 ### High-Level Design
 
@@ -304,6 +357,101 @@ flowchart TD
 3. **--send-teams Flag**: Controls Microsoft Teams notification delivery
 4. **--dry-run Flag**: Enables preview mode without posting to GitHub
 5. **Teams Webhook Configured**: Optional notification on analysis completion
+
+---
+
+### End-to-End Workflow: AWX Execution Context
+
+The following diagram shows how the agent executes when triggered via **Ansible AWX** (recommended for production):
+
+```mermaid
+flowchart TD
+    Start([AWX Trigger]) --> TriggerType{Trigger<br/>Type?}
+    
+    TriggerType -->|Manual UI| ManualTrigger[Operator Launches<br/>Job Template]
+    TriggerType -->|Scheduled| ScheduledTrigger[Cron/Schedule<br/>Executes Job]
+    TriggerType -->|Webhook| WebhookTrigger[GitHub Webhook<br/>Triggers Job]
+    
+    ManualTrigger --> Survey[Survey Form:<br/>Select Mode & Options]
+    ScheduledTrigger --> PresetVars[Use Preset Variables]
+    WebhookTrigger --> PresetVars
+    
+    Survey --> InjectCreds[AWX Injects Credentials:<br/>Ollama, GitHub, Langfuse]
+    PresetVars --> InjectCreds
+    
+    InjectCreds --> TargetHost{Target<br/>Host?}
+    TargetHost -->|Windows| WinRMConnection[Establish WinRM/psrp<br/>Connection]
+    TargetHost -->|Linux Localhost| LocalExecution[Execute Locally<br/>on AWX Node]
+    
+    WinRMConnection --> ActivateVenv[Activate Project<br/>.venv on Remote Host]
+    LocalExecution --> ActivateVenv
+    
+    ActivateVenv --> CheckMode{Execution<br/>Mode?}
+    
+    CheckMode -->|--report| ReportAgent[Run Report Mode<br/>src/main.py --report]
+    CheckMode -->|--issue N| IssueAgent[Run Issue Mode<br/>src/main.py --issue N]
+    CheckMode -->|--auto-analyze| AutoAgent[Run Auto-Analyze Mode<br/>src/main.py --auto-analyze]
+    
+    ReportAgent --> AgentExecution[Python Agent Executes:<br/>• Load environment<br/>• Call GitHub API<br/>• Format output]
+    IssueAgent --> AgentExecution
+    AutoAgent --> AgentExecution
+    
+    AgentExecution --> LLMRequired{LLM<br/>Required?}
+    LLMRequired -->|Yes - Issue/Auto Mode| CallOllama[LangGraph Agent:<br/>• Call Ollama LLM<br/>• GitHub API Tools<br/>• Generate Recommendation]
+    LLMRequired -->|No - Report Mode| FormatOutput[Format Report:<br/>Direct Python]
+    
+    CallOllama --> PostToGitHub[Post Comment<br/>to GitHub Issue]
+    FormatOutput --> CheckTeamsConfig{Teams<br/>Configured?}
+    PostToGitHub --> CheckTeamsConfig
+    
+    CheckTeamsConfig -->|Yes| SendTeamsCard[Send Adaptive Card<br/>to MS Teams Channel]
+    CheckTeamsConfig -->|No| ReturnResults[Return Results<br/>to AWX]
+    SendTeamsCard --> ReturnResults
+    
+    ReturnResults --> AWXLogs[AWX Captures:<br/>• stdout/stderr<br/>• Exit code<br/>• Execution time]
+    AWXLogs --> AWXHistory[Store in Job History:<br/>• Success/failure status<br/>• Full logs<br/>• Operator identity]
+    AWXHistory --> Notifications{Notifications<br/>Enabled?}
+    
+    Notifications -->|Yes| SendNotif[Send AWX Notifications:<br/>Email, Slack, etc.]
+    Notifications -->|No| End([Job Complete])
+    SendNotif --> End
+    
+    %% Styling
+    classDef awxClass fill:#FF6B6B,stroke:#C92A2A,stroke-width:3px,color:#fff
+    classDef agentClass fill:#4CAF50,stroke:#2E7D32,stroke-width:2px,color:#fff
+    classDef apiClass fill:#2196F3,stroke:#1565C0,stroke-width:2px,color:#fff
+    classDef llmClass fill:#FF9800,stroke:#E65100,stroke-width:2px,color:#fff
+    classDef decisionClass fill:#9C27B0,stroke:#6A1B9A,stroke-width:2px,color:#fff
+    classDef outputClass fill:#00BCD4,stroke:#006064,stroke-width:2px,color:#fff
+    
+    class Start,ManualTrigger,ScheduledTrigger,WebhookTrigger,Survey,InjectCreds,AWXLogs,AWXHistory,SendNotif awxClass
+    class ReportAgent,IssueAgent,AutoAgent,AgentExecution agentClass
+    class PostToGitHub,SendTeamsCard,FormatOutput apiClass
+    class CallOllama llmClass
+    class TriggerType,TargetHost,CheckMode,LLMRequired,CheckTeamsConfig,Notifications decisionClass
+    class WinRMConnection,LocalExecution,ActivateVenv,ReturnResults,End outputClass
+```
+
+**AWX Workflow Legend:**
+- 🔴 **Red Nodes**: AWX orchestration (triggers, credentials, logging, history)
+- 🟢 **Green Nodes**: Python agent execution (CLI invocation, mode selection)
+- 🔵 **Blue Nodes**: External API operations (GitHub, Teams)
+- 🟠 **Orange Nodes**: LLM/AI processing (Ollama inference)
+- 🟣 **Purple Nodes**: Decision points (mode selection, conditionals)
+- 🔷 **Cyan Nodes**: Infrastructure operations (connections, output capture)
+
+**Key Differences from Local CLI Execution:**
+1. **Trigger Sources**: Manual UI, scheduled cron, or webhook (not just CLI command)
+2. **Credential Injection**: AWX injects secrets automatically (no local `.env` files)
+3. **Remote Execution**: Can target Windows hosts via WinRM or Linux hosts locally
+4. **Job History**: Every execution is logged with operator identity and full output
+5. **Notifications**: Integrated with AWX notification system (email, Slack, Teams, PagerDuty)
+6. **Survey Forms**: UI-driven parameter collection (no command-line arguments)
+
+**Execution Flow Summary:**
+- AWX job triggered → Credentials injected → Remote host connection → Python agent executes → Results captured → Job history stored → Notifications sent
+
+---
 
 ### Components
 
@@ -1029,9 +1177,69 @@ jobs:
 - `OLLAMA_BASE_URL` — Remote Ollama server URL
 - `OLLAMA_API_KEY` — Ollama Bearer token (if required)
 
+💡 **Tip**: For production deployments with centralized execution, webhook triggers, and secure credential management, see [Ansible AWX Deployment (⭐ Recommended for Production)](#ansible-awx-deployment--recommended-for-production).
+
 ---
 
 ## Deployment
+
+### Ansible AWX Deployment (⭐ Recommended for Production)
+
+**AWX Integration** enables scheduled execution, on-demand triggering, and centralized credential management for the GitHub Issue Reporter agent.
+
+**Features:**
+- 🕐 **Scheduled Execution**: Automate issue analysis on a cron schedule (daily, hourly, weekly)
+- 🚀 **On-Demand Triggering**: Launch jobs manually via AWX UI or API
+- 🔐 **Secure Credential Management**: Store GitHub tokens and Ollama API keys in AWX credentials
+- 📊 **Survey Forms**: Collect execution parameters (mode, issue number, dry run) via UI
+- 📈 **Job History & Logs**: Track execution history, view logs, and monitor success rates
+- 🔗 **Webhook Integration**: Trigger analysis automatically when new issues are opened on GitHub
+
+**Quick Start:**
+
+1. **AWX Setup Files**: All required files are in the `awx/` directory:
+   - `playbook.yml` — Ansible playbook for agent execution
+   - `playbook_windows.yml` — Windows remote execution playbook
+   - `survey.json` — AWX survey specification for UI parameters
+   - `credentials.yml` — Custom credential type definitions
+   - `README.md` — Complete setup guide (7 sections, 300+ lines)
+
+2. **Setup Steps** (see `awx/README.md` for details):
+   - Import credential types (Ollama, GitHub, Langfuse)
+   - Create credentials with GitHub token and repository config
+   - Create AWX project pointing to this repository
+   - Create job template with playbook and survey
+   - Test execution manually
+   - Configure schedule for automated runs
+
+3. **Usage Patterns**:
+   - **Daily Auto-Analysis**: Automatically analyze new issues every morning
+   - **Manual Issue Analysis**: Analyze specific issues on demand via AWX UI
+   - **Webhook-Triggered**: Auto-analyze new issues immediately when opened
+   - **Scheduled Reports**: Generate weekly issue reports for stakeholder review
+
+**Example AWX Job Template**:
+- **Name**: `GitHub Issue Reporter - Run Agent`
+- **Playbook**: `projects/04_github_issue_reporter/awx/playbook.yml` (Linux) or `playbook_windows.yml` (Windows)
+- **Survey**: Execution Mode (report/issue/auto-analyze), Issue Number, Dry Run, Max Issues, Log Level
+- **Credentials**: Ollama API, GitHub API, Langfuse (optional)
+- **Schedule**: Daily at 9:00 AM UTC (for auto-analyze mode)
+
+**Expected Output** (JSON format for Ansible parsing):
+```json
+{
+  "status": "success",
+  "mode": "auto-analyze",
+  "issues_found": 5,
+  "issues_analyzed": 3,
+  "recommendations_posted": 3,
+  "skipped": 2
+}
+```
+
+**For detailed setup instructions**, see [`awx/README.md`](awx/README.md).
+
+---
 
 ### Local Development
 
