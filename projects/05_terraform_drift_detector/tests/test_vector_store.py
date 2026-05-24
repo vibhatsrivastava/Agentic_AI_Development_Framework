@@ -18,7 +18,10 @@ def test_initialize_vector_store_builds_new(tmp_path, mock_embeddings, mocker):
     
     # Mock Chroma.from_documents
     mock_vector_store = Mock()
-    mocker.patch("langchain_chroma.Chroma.from_documents", return_value=mock_vector_store)
+    mock_from_documents = mocker.patch(
+        "langchain_chroma.Chroma.from_documents",
+        return_value=mock_vector_store
+    )
     
     # Mock DirectoryLoader
     mock_policy_doc = Mock(page_content="policy content", metadata={"source": "policies/tags.yaml"})
@@ -39,7 +42,7 @@ def test_initialize_vector_store_builds_new(tmp_path, mock_embeddings, mocker):
     )
     
     # Chroma.from_documents should have been called
-    assert mocker.call_count > 0
+    assert mock_from_documents.called
 
 
 def test_initialize_vector_store_loads_existing(tmp_path, mock_embeddings, mocker):

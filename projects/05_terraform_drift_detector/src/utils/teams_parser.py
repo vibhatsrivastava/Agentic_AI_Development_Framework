@@ -139,39 +139,33 @@ def validate_teams_config(config: Dict[str, Any]) -> bool:
         True if valid, False otherwise (logs errors)
     """
     if not isinstance(config, dict):
-        logger.error("teams.yaml must be a dictionary")
-        return False
+        raise ValueError("teams.yaml must be a dictionary")
     
     if "resource_ownership" not in config:
-        logger.error("teams.yaml missing required 'resource_ownership' key")
-        return False
+        raise ValueError("teams.yaml missing required 'resource_ownership' key")
     
     ownership = config["resource_ownership"]
     if not isinstance(ownership, dict):
-        logger.error("'resource_ownership' must be a dictionary")
-        return False
+        raise ValueError("'resource_ownership' must be a dictionary")
     
     # Validate each resource type configuration
-    valid = True
     for resource_type, type_config in ownership.items():
         if not isinstance(type_config, dict):
-            logger.error(f"Configuration for '{resource_type}' must be a dictionary")
-            valid = False
-            continue
+            raise ValueError(f"Configuration for '{resource_type}' must be a dictionary")
+
+        if not type_config.get("default_owner"):
+            raise ValueError(f"Configuration for '{resource_type}' missing required 'default_owner'")
         
         # Validate patterns (optional)
         if "patterns" in type_config:
             patterns = type_config["patterns"]
             if not isinstance(patterns, list):
-                logger.error(f"'patterns' for '{resource_type}' must be a list")
-                valid = False
+                raise ValueError(f"'patterns' for '{resource_type}' must be a list")
             else:
                 for idx, pattern_entry in enumerate(patterns):
                     if not isinstance(pattern_entry, dict):
-                        logger.error(f"Pattern entry {idx} for '{resource_type}' must be a dictionary")
-                        valid = False
+                        raise ValueError(f"Pattern entry {idx} for '{resource_type}' must be a dictionary")
                     elif "pattern" not in pattern_entry or "owner" not in pattern_entry:
-                        logger.error(f"Pattern entry {idx} for '{resource_type}' missing 'pattern' or 'owner'")
-                        valid = False
+                        raise ValueError(f"Pattern entry {idx} for '{resource_type}' missing 'pattern' or 'owner'")
     
-    return valid
+    return True
