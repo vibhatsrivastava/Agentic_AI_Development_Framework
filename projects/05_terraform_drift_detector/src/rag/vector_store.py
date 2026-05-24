@@ -73,8 +73,10 @@ def initialize_vector_store(
             )
             best_practice_docs = docs_loader.load()
             logger.info(f"Loaded {len(best_practice_docs)} documentation files")
-        except Exception as e:
-            logger.warning(f"Failed to load documentation files from {docs_dir}: {e}")
+        except (FileNotFoundError, PermissionError, ValueError) as e:
+            logger.warning(
+                f"Failed to load documentation files from {docs_dir}: {type(e).__name__}: {e}"
+            )
     else:
         logger.warning(f"Documentation directory not found: {docs_dir}")
     

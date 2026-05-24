@@ -126,12 +126,14 @@ def _extract_relevant_attributes(attributes: dict, resource_type: str) -> dict:
             "vpc_security_group_ids": attributes.get("vpc_security_group_ids", []),
         })
     elif resource_type == "aws_db_instance":
+        password = attributes.get("password")
         relevant.update({
             "engine": attributes.get("engine"),
             "engine_version": attributes.get("engine_version"),
             "instance_class": attributes.get("instance_class"),
             "allocated_storage": attributes.get("allocated_storage"),
-            "password": attributes.get("password"),
+            # Never expose plaintext password values in parsed output
+            "password": "[REDACTED]" if password is not None else None,
         })
     elif resource_type == "aws_security_group":
         relevant.update({

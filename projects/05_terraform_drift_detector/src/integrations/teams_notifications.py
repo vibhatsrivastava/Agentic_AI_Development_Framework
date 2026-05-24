@@ -150,9 +150,12 @@ def send_drift_issue_notification(
                     time.sleep(2 ** attempt)  # Exponential backoff: 1s, 2s, 4s
             except requests.exceptions.HTTPError as e:
                 logger.error(f"Teams webhook HTTP error: {e.response.status_code} - {e.response.reason}")
-                if e.response.status_code == 429 and attempt < max_retries - 1:  # Rate limit
-                    time.sleep(60)  # Wait 1 minute before retry
-                elif e.response.status_code != 429:
+                if e.response.status_code == 429:
+                    if attempt < max_retries - 1:
+                        time.sleep(60)  # Wait 1 minute before retry
+                    else:
+                        break
+                else:
                     break  # Don't retry on non-rate-limit HTTP errors
             except requests.exceptions.RequestException as e:
                 logger.error(f"Teams webhook request error: {e}")
