@@ -21,6 +21,7 @@ output "instance_state" {
 output "ami_id" {
   description = "AMI ID used for the EC2 instance"
   value       = aws_instance.drift_test.ami
+  sensitive   = true
 }
 
 output "state_file_path" {
