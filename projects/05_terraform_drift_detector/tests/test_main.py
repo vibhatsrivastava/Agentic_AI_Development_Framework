@@ -6,8 +6,11 @@ from main import (
     validate_workspace,
     validate_state_file,
     create_agent,
+    create_github_issues,
+    send_teams_notifications,
     run_check_mode,
-    run_fix_mode
+    run_fix_mode,
+    main
 )
 
 
@@ -222,3 +225,197 @@ def test_agent_tools_integration(mock_chat_llm, mock_vector_store):
         assert "fetch_cloud_resources" in tool_names
         assert "compare_resources" in tool_names
         assert "analyze_drift_with_policies" in tool_names
+
+
+def test_create_github_issues_per_resource_success(monkeypatch, mocker):
+    """Test per-resource GitHub issue creation path."""
+    monkeypatch.setenv("GITHUB_OWNER", "test-owner")
+    monkeypatch.setenv("GITHUB_REPO", "test-repo")
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    monkeypatch.setenv("GITHUB_ISSUE_STRATEGY", "per-resource")
+
+    json_data = {
+        "resources": [
+            {
+                "id": "i-abc123",
+                "type": "aws_instance",
+                "name": "web-prod-01",
+                "drift_type": "tags_modified",
+                "severity": "HIGH",
+                "drift_details": {"removed_tags": ["Environment"]},
+                "policy_violations": [
+                    {"policy": "policies/tags.yaml", "section": "prod.required_tags[0]", "impact": "Missing tag"}
+                ],
+                "remediation_command": "terraform apply -target=aws_instance.web-prod-01",
+            }
+        ]
+    }
+
+    mocker.patch("main.parse_teams_config", return_value={"resource_ownership": {"ec2": {"default_owner": "@team"}}})
+    mocker.patch("main.get_resource_assignee", return_value="@team")
+    mock_search = mocker.patch("main.search_existing_issues", return_value='{"found": false}')
+    mock_create = mocker.patch(
+        "main.create_github_issue",
+        return_value='{"success": true, "issue_url": "https://github.com/test-owner/test-repo/issues/42"}',
+    )
+
+    created = create_github_issues(json_data, workspace="prod")
+
+    assert created == ["https://github.com/test-owner/test-repo/issues/42"]
+    mock_search.assert_called_once()
+    mock_create.assert_called_once()
+
+
+def test_create_github_issues_summary_success(monkeypatch, mocker):
+    """Test summary GitHub issue creation path."""
+    monkeypatch.setenv("GITHUB_OWNER", "test-owner")
+    monkeypatch.setenv("GITHUB_REPO", "test-repo")
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    monkeypatch.setenv("GITHUB_ISSUE_STRATEGY", "summary")
+    monkeypatch.setenv("GITHUB_ISSUE_ASSIGNEE", "platform-team")
+
+    json_data = {
+        "summary": {"total_resources": 2, "drifted": 1, "compliant": 1, "severity_breakdown": {"HIGH": 1}},
+        "resources": [
+            {
+                "id": "i-abc123",
+                "type": "aws_instance",
+                "name": "web-prod-01",
+                "severity": "HIGH",
+                "drift_type": "tags_modified",
+                "remediation_command": "terraform apply -target=aws_instance.web-prod-01",
+            }
+        ],
+    }
+    mock_create = mocker.patch(
+        "main.create_github_issue",
+        return_value='{"success": true, "issue_url": "https://github.com/test-owner/test-repo/issues/99"}',
+    )
+
+    created = create_github_issues(json_data, workspace="prod")
+
+    assert created == ["https://github.com/test-owner/test-repo/issues/99"]
+    mock_create.assert_called_once()
+
+
+def test_send_teams_notifications_success(monkeypatch, mocker):
+    """Test Teams summary notification dispatch."""
+    monkeypatch.setenv("TEAMS_WEBHOOK_URL", "https://example.com/webhook")
+    monkeypatch.setenv("GITHUB_OWNER", "test-owner")
+    monkeypatch.setenv("GITHUB_REPO", "test-repo")
+    mock_send = mocker.patch("main.send_drift_summary_notification", return_value=True)
+
+    send_teams_notifications(
+        json_data={"summary": {"drifted": 1}},
+        created_issues=["https://github.com/test-owner/test-repo/issues/1"],
+        workspace="prod",
+    )
+
+    mock_send.assert_called_once()
+
+
+def test_run_check_mode_creates_issues_and_sends_teams(
+    mock_chat_llm,
+    mock_vector_store,
+    sample_state_file,
+    mocker,
+    monkeypatch,
+):
+    """Test run_check_mode JSON extraction and notification flow."""
+    args = Mock()
+    args.workspace = "prod"
+    args.state_file = str(sample_state_file)
+    args.vector_store_dir = "./vector_store"
+    args.rebuild_vector_store = False
+
+    monkeypatch.setenv("GITHUB_ISSUE_ENABLED", "true")
+    monkeypatch.setenv("TEAMS_NOTIFICATION_ENABLED", "true")
+
+    mocker.patch("main.initialize_vector_store", return_value=mock_vector_store)
+    mocker.patch("main.get_retriever", return_value=Mock())
+    mocker.patch("main.create_github_issues", return_value=["https://github.com/test/repo/issues/1"])
+    mock_send_teams = mocker.patch("main.send_teams_notifications")
+
+    mock_agent = Mock()
+    msg = Mock()
+    msg.content = """# Drift Report
+```json
+{"drift_detected": true, "summary": {"drifted": 1}, "resources": []}
+```"""
+    mock_agent.invoke.return_value = {"messages": [msg]}
+    mocker.patch("main.create_agent", return_value=mock_agent)
+
+    run_check_mode(args)
+
+    mock_send_teams.assert_called_once()
+
+
+def test_run_check_mode_vector_store_init_failure(sample_state_file, mocker, capsys):
+    """Test run_check_mode exits when vector store initialization fails."""
+    args = Mock()
+    args.workspace = "prod"
+    args.state_file = str(sample_state_file)
+    args.vector_store_dir = "./vector_store"
+    args.rebuild_vector_store = False
+    mocker.patch("main.initialize_vector_store", side_effect=Exception("boom"))
+
+    with pytest.raises(SystemExit) as excinfo:
+        run_check_mode(args)
+
+    assert excinfo.value.code == 1
+    assert "Error initializing vector store" in capsys.readouterr().err
+
+
+def test_run_fix_mode_vector_store_init_failure(sample_state_file, mocker, capsys):
+    """Test run_fix_mode exits when vector store initialization fails."""
+    args = Mock()
+    args.workspace = "prod"
+    args.state_file = str(sample_state_file)
+    args.resource = "i-0123456789abcdef0"
+    args.vector_store_dir = "./vector_store"
+    mocker.patch("main.initialize_vector_store", side_effect=Exception("boom"))
+
+    with pytest.raises(SystemExit) as excinfo:
+        run_fix_mode(args)
+
+    assert excinfo.value.code == 1
+    assert "Error initializing vector store" in capsys.readouterr().err
+
+
+def test_run_fix_mode_agent_failure(sample_state_file, mocker, capsys):
+    """Test run_fix_mode exits when agent invocation fails."""
+    args = Mock()
+    args.workspace = "prod"
+    args.state_file = str(sample_state_file)
+    args.resource = "i-0123456789abcdef0"
+    args.vector_store_dir = "./vector_store"
+    mocker.patch("main.initialize_vector_store", return_value=Mock())
+    mocker.patch("main.get_retriever", return_value=Mock())
+
+    mock_agent = Mock()
+    mock_agent.invoke.side_effect = RuntimeError("agent failed")
+    mocker.patch("main.create_agent", return_value=mock_agent)
+
+    with pytest.raises(SystemExit) as excinfo:
+        run_fix_mode(args)
+
+    assert excinfo.value.code == 1
+    assert "Error generating remediation plan" in capsys.readouterr().err
+
+
+def test_main_cli_routes_check_mode(monkeypatch, mocker):
+    """Test CLI routing into check mode."""
+    mock_run_check = mocker.patch("main.run_check_mode")
+    monkeypatch.setattr("sys.argv", ["main.py", "--check", "--workspace", "prod"])
+
+    main()
+
+    mock_run_check.assert_called_once()
+
+
+def test_main_cli_requires_resource_in_fix_mode(monkeypatch):
+    """Test CLI parser error when --fix is used without --resource."""
+    monkeypatch.setattr("sys.argv", ["main.py", "--fix", "--workspace", "prod"])
+
+    with pytest.raises(SystemExit):
+        main()

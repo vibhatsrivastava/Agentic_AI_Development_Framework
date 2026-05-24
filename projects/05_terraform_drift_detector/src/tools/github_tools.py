@@ -3,7 +3,6 @@
 import json
 import requests
 from typing import Optional, List, Dict
-from langchain_core.tools import tool
 from common.utils import get_logger, require_env
 
 logger = get_logger(__name__)
@@ -24,12 +23,12 @@ def get_github_headers(token: Optional[str] = None) -> Dict[str, str]:
     
     return {
         "Authorization": f"Bearer {token}",
-        "Accept": "application/vnd.github+json",
+        "Accept": "application/vnd.github.v3+json",
+        "Content-Type": "application/json",
         "X-GitHub-Api-Version": "2022-11-28",
     }
 
 
-@tool
 def create_github_issue(
     owner: str,
     repo: str,
@@ -86,7 +85,7 @@ def create_github_issue(
             "success": True,
             "issue_number": result["number"],
             "issue_url": result["html_url"],
-            "created_at": result["created_at"],
+            "created_at": result.get("created_at"),
         }, indent=2)
         
     except requests.exceptions.HTTPError as e:
@@ -107,7 +106,6 @@ def create_github_issue(
         return json.dumps({"success": False, "error": error_msg})
 
 
-@tool
 def search_existing_issues(
     owner: str,
     repo: str,
@@ -160,13 +158,14 @@ def search_existing_issues(
             logger.info(f"Found existing issue #{issue['number']}: {issue['html_url']}")
             return json.dumps({
                 "found": True,
+                "count": result.get("total_count", 0),
                 "issue_number": issue["number"],
                 "issue_url": issue["html_url"],
                 "issue_title": issue["title"],
             }, indent=2)
         else:
             logger.info("No existing issue found")
-            return json.dumps({"found": False}, indent=2)
+            return json.dumps({"found": False, "count": 0}, indent=2)
         
     except requests.exceptions.HTTPError as e:
         error_msg = f"GitHub API error: {e.response.status_code} - {e.response.reason}"
@@ -178,7 +177,6 @@ def search_existing_issues(
         return json.dumps({"success": False, "error": error_msg})
 
 
-@tool
 def update_issue_labels(
     owner: str,
     repo: str,
@@ -242,7 +240,6 @@ def update_issue_labels(
         return json.dumps({"success": False, "error": error_msg})
 
 
-@tool
 def close_issue(
     owner: str,
     repo: str,
@@ -305,7 +302,6 @@ def close_issue(
         return json.dumps({"success": False, "error": error_msg})
 
 
-@tool
 def post_issue_comment(
     owner: str,
     repo: str,
@@ -343,8 +339,8 @@ def post_issue_comment(
         return json.dumps({
             "success": True,
             "comment_id": result["id"],
-            "comment_url": result["html_url"],
-            "created_at": result["created_at"],
+            "comment_url": result.get("html_url"),
+            "created_at": result.get("created_at"),
         }, indent=2)
         
     except requests.exceptions.HTTPError as e:

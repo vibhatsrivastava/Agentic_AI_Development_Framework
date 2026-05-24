@@ -136,35 +136,41 @@ def send_drift_issue_notification(
                     timeout=10
                 )
                 resp.raise_for_status()
-                
+
                 # Teams webhook returns "1" on success
                 if resp.text.strip() == "1":
                     logger.info(f"Successfully sent Teams notification for issue #{issue_number}")
                     return True
-                else:
-                    logger.warning(f"Teams webhook returned unexpected response: {resp.text}")
-                    
+
+                logger.warning(f"Teams webhook returned unexpected response: {resp.text}")
+
             except requests.exceptions.Timeout:
                 logger.warning(f"Teams webhook timeout (attempt {attempt + 1}/{max_retries})")
                 if attempt < max_retries - 1:
                     time.sleep(2 ** attempt)  # Exponential backoff: 1s, 2s, 4s
             except requests.exceptions.HTTPError as e:
                 logger.error(f"Teams webhook HTTP error: {e.response.status_code} - {e.response.reason}")
-                if e.response.status_code == 429:  # Rate limit
+                if e.response.status_code == 429:
                     if attempt < max_retries - 1:
                         time.sleep(60)  # Wait 1 minute before retry
+                    else:
+                        break
                 else:
-                    break  # Don't retry on other HTTP errors
+                    break  # Don't retry on non-rate-limit HTTP errors
             except requests.exceptions.RequestException as e:
                 logger.error(f"Teams webhook request error: {e}")
                 if attempt < max_retries - 1:
                     time.sleep(2 ** attempt)
-        
+            except Exception as e:
+                logger.error(f"Unexpected error sending Teams notification: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+
         logger.error(f"Failed to send Teams notification after {max_retries} attempts")
         return False
-        
+
     except Exception as e:
-        logger.error(f"Unexpected error sending Teams notification: {e}")
+        logger.error(f"Unexpected error preparing Teams notification: {e}")
         return False
 
 

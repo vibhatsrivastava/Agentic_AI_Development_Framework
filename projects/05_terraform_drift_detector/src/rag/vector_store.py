@@ -1,10 +1,10 @@
 """RAG Vector Store initialization for Terraform policy documents."""
 
 from pathlib import Path
-from langchain_community.document_loaders import DirectoryLoader
+from langchain_community import document_loaders
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_chroma import Chroma
-from common.llm_factory import get_embeddings
+import langchain_chroma
+from common import llm_factory
 from common.utils import get_logger
 
 logger = get_logger(__name__)
@@ -14,7 +14,7 @@ def initialize_vector_store(
     persist_directory: str = "./vector_store",
     force_rebuild: bool = False,
     collection_name: str = "terraform_policies"
-) -> Chroma:
+) -> langchain_chroma.Chroma:
     """
     Initialize Chroma vector store from policy files and documentation.
     
@@ -36,9 +36,9 @@ def initialize_vector_store(
     if persist_path.exists() and not force_rebuild:
         logger.info(f"Loading existing vector store from {persist_directory}")
         try:
-            return Chroma(
+            return langchain_chroma.Chroma(
                 persist_directory=persist_directory,
-                embedding_function=get_embeddings(),
+                embedding_function=llm_factory.get_embeddings(),
                 collection_name=collection_name,
             )
         except Exception as e:
@@ -48,11 +48,12 @@ def initialize_vector_store(
     logger.info("Building new vector store from policy files and documentation...")
     
     # Load policy files (YAML)
-    policies_dir = Path("./policies")
+    base_dir = Path.cwd()
+    policies_dir = base_dir / "policies"
     if not policies_dir.exists():
         raise FileNotFoundError(f"Policies directory not found: {policies_dir}")
     
-    policy_loader = DirectoryLoader(
+    policy_loader = document_loaders.DirectoryLoader(
         str(policies_dir),
         glob="**/*.yaml",
         show_progress=True,
@@ -61,16 +62,21 @@ def initialize_vector_store(
     logger.info(f"Loaded {len(policy_docs)} policy documents")
     
     # Load best practices documentation (Markdown)
-    docs_dir = Path("./docs")
+    docs_dir = base_dir / "docs"
     best_practice_docs = []
     if docs_dir.exists():
-        docs_loader = DirectoryLoader(
-            str(docs_dir),
-            glob="**/*.md",
-            show_progress=True,
-        )
-        best_practice_docs = docs_loader.load()
-        logger.info(f"Loaded {len(best_practice_docs)} documentation files")
+        try:
+            docs_loader = document_loaders.DirectoryLoader(
+                str(docs_dir),
+                glob="**/*.md",
+                show_progress=True,
+            )
+            best_practice_docs = docs_loader.load()
+            logger.info(f"Loaded {len(best_practice_docs)} documentation files")
+        except (FileNotFoundError, PermissionError, ValueError) as e:
+            logger.warning(
+                f"Failed to load documentation files from {docs_dir}: {type(e).__name__}: {e}"
+            )
     else:
         logger.warning(f"Documentation directory not found: {docs_dir}")
     
@@ -90,9 +96,9 @@ def initialize_vector_store(
     logger.info(f"Split into {len(chunks)} chunks")
     
     # Create vector store
-    vector_store = Chroma.from_documents(
+    vector_store = langchain_chroma.Chroma.from_documents(
         documents=chunks,
-        embedding=get_embeddings(),
+        embedding=llm_factory.get_embeddings(),
         persist_directory=persist_directory,
         collection_name=collection_name,
     )
@@ -103,7 +109,7 @@ def initialize_vector_store(
     return vector_store
 
 
-def get_retriever(vector_store: Chroma, k: int = 5):
+def get_retriever(vector_store: langchain_chroma.Chroma, k: int = 5):
     """
     Get a retriever from the vector store.
     

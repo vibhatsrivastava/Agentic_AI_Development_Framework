@@ -132,6 +132,12 @@ def validate_state_file(state_file_path: str) -> Path:
         )
     
     path = Path(state_file_path)
+    if ".." in path.parts:
+        raise ValueError(
+            f"Invalid state file path: '{state_file_path}'. "
+            "Path traversal is not allowed."
+        )
+
     if not path.exists():
         raise FileNotFoundError(f"State file not found: {state_file_path}")
     
@@ -179,13 +185,13 @@ def create_github_issues(json_data: dict, workspace: str) -> list:
                 
                 # Check if issue already exists (deduplication)
                 try:
-                    search_result = search_existing_issues.invoke({
-                        "owner": owner,
-                        "repo": repo,
-                        "resource_id": resource_id,
-                        "drift_type": drift_type,
-                        "token": os.getenv("GITHUB_TOKEN"),
-                    })
+                    search_result = search_existing_issues(
+                        owner=owner,
+                        repo=repo,
+                        resource_id=resource_id,
+                        drift_type=drift_type,
+                        token=os.getenv("GITHUB_TOKEN"),
+                    )
                     search_data = json.loads(search_result)
                     
                     if search_data.get("found"):
@@ -249,15 +255,15 @@ def create_github_issues(json_data: dict, workspace: str) -> list:
                 
                 # Create issue
                 try:
-                    issue_result = create_github_issue.invoke({
-                        "owner": owner,
-                        "repo": repo,
-                        "title": title,
-                        "body": body,
-                        "labels": labels,
-                        "assignees": assignees,
-                        "token": os.getenv("GITHUB_TOKEN"),
-                    })
+                    issue_result = create_github_issue(
+                        owner=owner,
+                        repo=repo,
+                        title=title,
+                        body=body,
+                        labels=labels,
+                        assignees=assignees,
+                        token=os.getenv("GITHUB_TOKEN"),
+                    )
                     issue_data = json.loads(issue_result)
                     
                     if issue_data.get("success"):
@@ -321,15 +327,15 @@ def create_github_issues(json_data: dict, workspace: str) -> list:
             assignees = [assignee] if assignee else []
             
             try:
-                issue_result = create_github_issue.invoke({
-                    "owner": owner,
-                    "repo": repo,
-                    "title": title,
-                    "body": body,
-                    "labels": labels,
-                    "assignees": assignees,
-                    "token": os.getenv("GITHUB_TOKEN"),
-                })
+                issue_result = create_github_issue(
+                    owner=owner,
+                    repo=repo,
+                    title=title,
+                    body=body,
+                    labels=labels,
+                    assignees=assignees,
+                    token=os.getenv("GITHUB_TOKEN"),
+                )
                 issue_data = json.loads(issue_result)
                 
                 if issue_data.get("success"):
@@ -413,7 +419,7 @@ def create_agent(retriever):
     agent = create_react_agent(
         model=llm,
         tools=tools,
-        state_modifier=SYSTEM_PROMPT,
+        prompt=SYSTEM_PROMPT,
     )
     
     return agent
