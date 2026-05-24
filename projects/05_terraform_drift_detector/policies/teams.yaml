@@ -1,0 +1,59 @@
+# Resource Ownership Mapping for GitHub Issue Assignment
+# This file defines ownership patterns for infrastructure resources.
+# When drift is detected, issues are automatically assigned based on these mappings.
+
+resource_ownership:
+  # EC2 Instances
+  ec2:
+    default_owner: "@infrastructure-team"
+    patterns:
+      - pattern: "web-.*"
+        owner: "@web-team"
+        description: "Web servers"
+      - pattern: "db-.*"
+        owner: "@database-team"
+        description: "Database instances"
+      - pattern: ".*-prod-.*"
+        owner: "@production-team"
+        description: "Production instances (fallback pattern)"
+  
+  # RDS Databases
+  rds:
+    default_owner: "@database-team"
+    patterns:
+      - pattern: "postgres-.*"
+        owner: "@database-team"
+        description: "PostgreSQL databases"
+      - pattern: "mysql-.*"
+        owner: "@database-team"
+        description: "MySQL databases"
+  
+  # S3 Buckets
+  s3:
+    default_owner: "@data-team"
+    patterns:
+      - pattern: "logs-.*"
+        owner: "@platform-team"
+        description: "Log storage buckets"
+      - pattern: "backup-.*"
+        owner: "@infrastructure-team"
+        description: "Backup buckets"
+      - pattern: ".*-analytics.*"
+        owner: "@analytics-team"
+        description: "Analytics data buckets"
+  
+  # Security Groups
+  security_group:
+    default_owner: "@security-team"
+    patterns:
+      - pattern: "web-.*"
+        owner: "@web-team"
+        description: "Web security groups"
+      - pattern: "db-.*"
+        owner: "@database-team"
+        description: "Database security groups"
+
+# Fallback Configuration
+# If no pattern matches and no default_owner is defined for the resource type,
+# the GITHUB_ISSUE_ASSIGNEE environment variable will be used.
+# If that's also not set, no assignee will be added.

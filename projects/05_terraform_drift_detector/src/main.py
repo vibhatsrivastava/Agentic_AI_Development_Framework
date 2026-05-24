@@ -6,6 +6,8 @@ between Terraform state files and live AWS resources.
 """
 
 import argparse
+import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -21,6 +23,15 @@ from tools import (
     fetch_cloud_resources,
     compare_resources,
     create_policy_analysis_tool,
+)
+from tools.github_tools import (
+    create_github_issue,
+    search_existing_issues,
+)
+from utils.teams_parser import get_resource_assignee, parse_teams_config
+from integrations.teams_notifications import (
+    send_drift_issue_notification,
+    send_drift_summary_notification,
 )
 
 # Load environment variables
@@ -45,10 +56,35 @@ STRICT RULES FOR TOOL USAGE:
 - Never hallucinate policy violations not present in retrieved policy documents
 
 OUTPUT FORMAT:
-After analyzing drift, provide a structured markdown report with:
-- Summary (total resources scanned, drifted count by severity)
-- Drift details per resource (what changed, policy violations, compliance frameworks)
-- Remediation commands (exact Terraform CLI commands to fix drift)
+You MUST provide TWO outputs in your response:
+
+1. MARKDOWN REPORT (for console display):
+   - Summary (total resources scanned, drifted count by severity)
+   - Drift details per resource (what changed, policy violations, compliance frameworks)
+   - Remediation commands (exact Terraform CLI commands to fix drift)
+
+2. JSON DATA BLOCK (for automation) - Enclose in ```json...``` code block:
+   {
+     "drift_detected": true,
+     "summary": {
+       "total_resources": 12,
+       "drifted": 3,
+       "compliant": 9,
+       "severity_breakdown": {"CRITICAL": 1, "HIGH": 2, "MEDIUM": 0, "LOW": 0}
+     },
+     "resources": [
+       {
+         "id": "i-0123456789abcdef0",
+         "type": "aws_instance",
+         "name": "web-prod-01",
+         "severity": "CRITICAL",
+         "drift_type": "Tags Modified",
+         "drift_details": {"removed_tags": ["Environment"], "modified_tags": {}},
+         "policy_violations": [{"policy": "policies/tags.yaml", "section": "production.required_tags[0]", "impact": "..."}],
+         "remediation_command": "terraform apply -target=aws_instance.web-prod-01"
+       }
+     ]
+   }
 
 Remember: Your analysis must be grounded in retrieved policy documents. Do not make up policies or compliance requirements."""
 
@@ -95,6 +131,254 @@ def validate_state_file(state_file_path: str) -> Path:
         raise FileNotFoundError(f"State file not found: {state_file_path}")
     
     return path
+
+
+def create_github_issues(json_data: dict, workspace: str) -> list:
+    """
+    Create GitHub issues based on drift detection results.
+    
+    Args:
+        json_data: Parsed JSON data from agent output
+        workspace: Terraform workspace name
+    
+    Returns:
+        List of created issue URLs
+    """
+    try:
+        owner = os.getenv("GITHUB_OWNER")
+        repo = os.getenv("GITHUB_REPO")
+        strategy = os.getenv("GITHUB_ISSUE_STRATEGY", "per-resource")
+        
+        if not owner or not repo:
+            logger.warning("GITHUB_OWNER or GITHUB_REPO not set, skipping issue creation")
+            return []
+        
+        # Load teams.yaml configuration for assignee resolution
+        try:
+            teams_config = parse_teams_config()
+        except Exception as e:
+            logger.warning(f"Could not load teams.yaml: {e}, using fallback assignee")
+            teams_config = None
+        
+        resources = json_data.get("resources", [])
+        created_issues = []
+        
+        if strategy == "per-resource":
+            # Create one issue per drifted resource with deduplication
+            for resource in resources:
+                resource_id = resource.get("id")
+                resource_type = resource.get("type")
+                resource_name = resource.get("name")
+                drift_type = resource.get("drift_type")
+                severity = resource.get("severity", "MEDIUM")
+                
+                # Check if issue already exists (deduplication)
+                try:
+                    search_result = search_existing_issues.invoke({
+                        "owner": owner,
+                        "repo": repo,
+                        "resource_id": resource_id,
+                        "drift_type": drift_type,
+                        "token": os.getenv("GITHUB_TOKEN"),
+                    })
+                    search_data = json.loads(search_result)
+                    
+                    if search_data.get("found"):
+                        logger.info(f"Issue already exists for {resource_id}: {search_data.get('issue_url')}")
+                        created_issues.append(search_data.get("issue_url"))
+                        continue
+                except Exception as e:
+                    logger.warning(f"Error searching existing issues: {e}")
+                
+                # Determine assignee from teams.yaml
+                assignee = get_resource_assignee(resource_type, resource_name, teams_config)
+                assignees = [assignee] if assignee else []
+                
+                # Build issue title and body
+                title = f"🚨 Drift: {resource_type}.{resource_name} - {drift_type} ({workspace})"
+                
+                body = f"""## Drift Detection Alert
+                
+**Workspace:** `{workspace}`  
+**Resource ID:** `{resource_id}`  
+**Resource Type:** `{resource_type}`  
+**Resource Name:** `{resource_name}`  
+**Severity:** `{severity}`  
+
+### Drift Details
+**Type:** {drift_type}
+
+"""
+                # Add drift details
+                drift_details = resource.get("drift_details", {})
+                if drift_details:
+                    body += "**Changes:**\n"
+                    for key, value in drift_details.items():
+                        body += f"- {key}: `{value}`\n"
+                    body += "\n"
+                
+                # Add policy violations
+                policy_violations = resource.get("policy_violations", [])
+                if policy_violations:
+                    body += "### Policy Violations\n"
+                    for violation in policy_violations:
+                        body += f"- **Policy:** `{violation.get('policy')}`\n"
+                        body += f"  - **Section:** `{violation.get('section')}`\n"
+                        body += f"  - **Impact:** {violation.get('impact')}\n"
+                    body += "\n"
+                
+                # Add remediation command
+                remediation = resource.get("remediation_command")
+                if remediation:
+                    body += f"### Remediation\n```bash\n{remediation}\n```\n\n"
+                
+                body += "---\n*Generated by Terraform Drift Detector*"
+                
+                # Define labels
+                labels = [
+                    "infrastructure-drift",
+                    f"severity-{severity.lower()}",
+                    f"resource-{resource_type.replace('aws_', '')}",
+                    f"workspace-{workspace}"
+                ]
+                
+                # Create issue
+                try:
+                    issue_result = create_github_issue.invoke({
+                        "owner": owner,
+                        "repo": repo,
+                        "title": title,
+                        "body": body,
+                        "labels": labels,
+                        "assignees": assignees,
+                        "token": os.getenv("GITHUB_TOKEN"),
+                    })
+                    issue_data = json.loads(issue_result)
+                    
+                    if issue_data.get("success"):
+                        issue_url = issue_data.get("issue_url")
+                        created_issues.append(issue_url)
+                        logger.info(f"Created issue for {resource_id}: {issue_url}")
+                    else:
+                        logger.error(f"Failed to create issue for {resource_id}: {issue_data.get('error')}")
+                except Exception as e:
+                    logger.error(f"Error creating issue for {resource_id}: {e}")
+        
+        elif strategy == "summary":
+            # Create single issue with all drift
+            summary = json_data.get("summary", {})
+            drifted_count = summary.get("drifted", 0)
+            
+            title = f"🚨 Drift Detection Report: {drifted_count} Resources in {workspace} Workspace"
+            
+            body = f"""## Drift Detection Summary
+
+**Workspace:** `{workspace}`  
+**Total Resources:** {summary.get('total_resources', 0)}  
+**Drifted:** {drifted_count}  
+**Compliant:** {summary.get('compliant', 0)}  
+
+### Severity Breakdown
+"""
+            severity_breakdown = summary.get("severity_breakdown", {})
+            for severity in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:
+                count = severity_breakdown.get(severity, 0)
+                if count > 0:
+                    body += f"- **{severity}:** {count}\n"
+            
+            body += "\n### Drifted Resources\n\n"
+            body += "| Resource | Type | Severity | Drift Type | Remediation |\n"
+            body += "|----------|------|----------|------------|-------------|\n"
+            
+            for resource in resources:
+                body += f"| `{resource.get('name')}` ({resource.get('id')}) | {resource.get('type')} | {resource.get('severity')} | {resource.get('drift_type')} | `{resource.get('remediation_command')}` |\n"
+            
+            body += "\n---\n*Generated by Terraform Drift Detector*"
+            
+            # Determine overall severity for labels
+            max_severity = "LOW"
+            if severity_breakdown.get("CRITICAL", 0) > 0:
+                max_severity = "CRITICAL"
+            elif severity_breakdown.get("HIGH", 0) > 0:
+                max_severity = "HIGH"
+            elif severity_breakdown.get("MEDIUM", 0) > 0:
+                max_severity = "MEDIUM"
+            
+            labels = [
+                "infrastructure-drift",
+                f"severity-{max_severity.lower()}",
+                f"workspace-{workspace}",
+                "summary-report"
+            ]
+            
+            # Use default assignee for summary issues
+            assignee = os.getenv("GITHUB_ISSUE_ASSIGNEE")
+            assignees = [assignee] if assignee else []
+            
+            try:
+                issue_result = create_github_issue.invoke({
+                    "owner": owner,
+                    "repo": repo,
+                    "title": title,
+                    "body": body,
+                    "labels": labels,
+                    "assignees": assignees,
+                    "token": os.getenv("GITHUB_TOKEN"),
+                })
+                issue_data = json.loads(issue_result)
+                
+                if issue_data.get("success"):
+                    issue_url = issue_data.get("issue_url")
+                    created_issues.append(issue_url)
+                    logger.info(f"Created summary issue: {issue_url}")
+                else:
+                    logger.error(f"Failed to create summary issue: {issue_data.get('error')}")
+            except Exception as e:
+                logger.error(f"Error creating summary issue: {e}")
+        
+        return created_issues
+    
+    except Exception as e:
+        logger.error(f"Error in create_github_issues: {e}")
+        return []
+
+
+def send_teams_notifications(json_data: dict, created_issues: list, workspace: str):
+    """
+    Send Microsoft Teams notifications for created issues.
+    
+    Args:
+        json_data: Parsed JSON data from agent output
+        created_issues: List of created issue URLs
+        workspace: Terraform workspace name
+    """
+    try:
+        webhook_url = os.getenv("TEAMS_WEBHOOK_URL")
+        if not webhook_url:
+            logger.warning("TEAMS_WEBHOOK_URL not set, skipping Teams notifications")
+            return
+        
+        owner = os.getenv("GITHUB_OWNER", "unknown")
+        repo = os.getenv("GITHUB_REPO", "unknown")
+        summary = json_data.get("summary", {})
+        
+        # Send summary notification
+        success = send_drift_summary_notification(
+            owner=owner,
+            repo=repo,
+            workspace=workspace,
+            drift_summary=summary,
+            issues_created=created_issues,
+            webhook_url=webhook_url
+        )
+        
+        if success:
+            logger.info("Successfully sent Teams summary notification")
+        else:
+            logger.warning("Failed to send Teams summary notification")
+    
+    except Exception as e:
+        logger.error(f"Error sending Teams notifications: {e}")
 
 
 def create_agent(retriever):
@@ -193,6 +477,33 @@ Provide a structured markdown report with drift summary and remediation commands
         print("=" * 80)
         print(answer)
         print("=" * 80 + "\n")
+        
+        # Parse JSON data for GitHub issue creation
+        json_data = None
+        try:
+            json_match = re.search(r'```json\s*\n(.*?)\n```', answer, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(1)
+                json_data = json.loads(json_str)
+                logger.info("Successfully parsed JSON data from agent output")
+            else:
+                logger.warning("No JSON block found in agent output")
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse JSON from agent output: {e}")
+        except Exception as e:
+            logger.warning(f"Error extracting JSON: {e}")
+        
+        # Create GitHub issues if enabled and drift detected
+        if json_data and json_data.get("drift_detected"):
+            github_enabled = os.getenv("GITHUB_ISSUE_ENABLED", "false").lower() == "true"
+            if github_enabled:
+                logger.info("GitHub issue creation is enabled")
+                created_issues = create_github_issues(json_data, args.workspace)
+                
+                # Send Teams notifications if enabled
+                teams_enabled = os.getenv("TEAMS_NOTIFICATION_ENABLED", "false").lower() == "true"
+                if teams_enabled and created_issues:
+                    send_teams_notifications(json_data, created_issues, args.workspace)
         
         logger.info("Drift check completed successfully")
     

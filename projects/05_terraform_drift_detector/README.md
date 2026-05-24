@@ -52,6 +52,18 @@ AWS_DEFAULT_REGION=us-east-1
 # Chroma Vector Store
 CHROMA_COLLECTION_NAME=terraform_policies
 CHROMA_PERSIST_DIR=./vector_store
+
+# GitHub Integration (Optional - Phase 1)
+GITHUB_TOKEN=ghp_your_github_personal_access_token_here
+GITHUB_OWNER=your_github_username_or_org
+GITHUB_REPO=your_infrastructure_repo_name
+GITHUB_ISSUE_STRATEGY=per-resource  # Options: per-resource, per-severity, summary
+GITHUB_ISSUE_ENABLED=false  # Set to true to enable GitHub issue creation
+GITHUB_ISSUE_ASSIGNEE=@infrastructure-team  # Fallback assignee if teams.yaml doesn't match
+
+# Microsoft Teams Notifications (Optional - Phase 2)
+TEAMS_WEBHOOK_URL=https://your-tenant.webhook.office.com/webhookb2/your-webhook-url
+TEAMS_NOTIFICATION_ENABLED=false  # Set to true to enable Teams notifications
 ```
 
 **Root `.env` variables (inherited automatically):**
@@ -220,34 +232,295 @@ python src/main.py --fix \
 
 ---
 
+## GitHub Integration & Automated Workflow (Phase 1 & 2)
+
+The agent supports **automated issue tracking** and **Microsoft Teams notifications** to streamline drift remediation workflows. When enabled, drift detection automatically:
+
+1. ✅ Creates GitHub issues with drift details and policy violations
+2. ✅ Deduplicates issues (avoids creating duplicates for same resource)
+3. ✅ Assigns issues to teams based on resource ownership patterns
+4. ✅ Sends adaptive card notifications to Microsoft Teams channels
+
+### End-to-End Workflow Diagram
+
+```mermaid
+graph TD
+    A[Start: terraform apply drift detection] --> B[Parse Terraform State]
+    B --> C[Fetch Live AWS Resources]
+    C --> D[Compare State vs Cloud]
+    D --> E{Drift Detected?}
+    E -->|No| F[Exit: All Compliant]
+    E -->|Yes| G[Analyze with RAG Policy Engine]
+    G --> H[Generate Markdown Report]
+    H --> I[Parse JSON Block from LLM]
+    I --> J{GitHub Enabled?}
+    J -->|No| K[Print Report Only]
+    J -->|Yes| L[Search Existing Issues]
+    L --> M{Issue Exists?}
+    M -->|Yes| N[Skip Creation]
+    M -->|No| O[Determine Assignee from teams.yaml]
+    O --> P[Create GitHub Issue]
+    P --> Q{Teams Enabled?}
+    Q -->|Yes| R[Send Adaptive Card Notification]
+    Q -->|No| S[End: Issue Created]
+    R --> S
+    
+    style G fill:#f9f,stroke:#333,stroke-width:2px
+    style P fill:#9f9,stroke:#333,stroke-width:2px
+    style R fill:#9cf,stroke:#333,stroke-width:2px
+    
+    %% Future Phases (not implemented)
+    S -.->|🚧 Phase 3| T[GitHub Webhook Receives /fix-terraform-drift]
+    T -.-> U[Update Labels: reviewed, approved]
+    U -.-> V[Execute terraform apply via AWX]
+    V -.-> W[Validate Remediation]
+    W -.-> X{Drift Resolved?}
+    X -.->|Yes| Y[Close GitHub Issue]
+    X -.->|No| Z[Post Failure Comment]
+    
+    style T fill:#ddd,stroke:#999,stroke-width:1px,stroke-dasharray: 5 5
+    style U fill:#ddd,stroke:#999,stroke-width:1px,stroke-dasharray: 5 5
+    style V fill:#ddd,stroke:#999,stroke-width:1px,stroke-dasharray: 5 5
+    style W fill:#ddd,stroke:#999,stroke-width:1px,stroke-dasharray: 5 5
+    style X fill:#ddd,stroke:#999,stroke-width:1px,stroke-dasharray: 5 5
+    style Y fill:#ddd,stroke:#999,stroke-width:1px,stroke-dasharray: 5 5
+    style Z fill:#ddd,stroke:#999,stroke-width:1px,stroke-dasharray: 5 5
+```
+
+**Legend:**
+- 🟢 **Solid boxes:** Currently implemented (Phase 1 & 2)
+- 🟤 **Dashed boxes:** Future phases (Phase 3 & 4) — see [Future Releases](#future-releases) section
+
+### Setup GitHub Integration
+
+#### 1. Create GitHub Personal Access Token
+
+Generate a token with `repo` scope for issue management:
+
+```powershell
+# Visit: https://github.com/settings/tokens/new
+# Scopes required: repo (full control of private repositories)
+# Copy token to .env file
+```
+
+#### 2. Configure Environment Variables
+
+Update `.env` with GitHub settings:
+
+```env
+GITHUB_TOKEN=ghp_your_token_here
+GITHUB_OWNER=vibhatsrivastava  # Your GitHub username or org
+GITHUB_REPO=Agentic_AI_Development_Framework  # Repository name
+GITHUB_ISSUE_STRATEGY=per-resource  # See strategies below
+GITHUB_ISSUE_ENABLED=true  # Enable issue creation
+GITHUB_ISSUE_ASSIGNEE=@infrastructure-team  # Fallback assignee
+```
+
+**Issue Creation Strategies:**
+
+| Strategy | Behavior | Use Case |
+|---|---|---|
+| `per-resource` | Creates one issue per drifted resource | Default; best for distributed ownership and detailed tracking |
+| `per-severity` | Groups resources by severity level (one issue per CRITICAL/HIGH/MEDIUM/LOW) | Useful for priority-based remediation workflows |
+| `summary` | Creates single issue with all drift in a table | Best for daily digest reports or small workspaces |
+
+#### 3. Configure Resource Ownership
+
+Edit `policies/teams.yaml` to define automatic assignee patterns:
+
+```yaml
+resource_ownership:
+  ec2:
+    default_owner: "@infrastructure-team"
+    patterns:
+      - pattern: "web-.*"
+        owner: "@web-team"
+      - pattern: "api-.*"
+        owner: "@backend-team"
+      - pattern: ".*-prod-.*"
+        owner: "@production-team"
+  
+  rds:
+    default_owner: "@database-team"
+    patterns:
+      - pattern: "postgres-.*"
+        owner: "@postgres-admin"
+  
+  s3:
+    default_owner: "@storage-team"
+    patterns: []
+```
+
+**Fallback chain for assignees:**
+1. **Pattern match:** Regex match on resource name (e.g., `web-prod-01` → `@web-team`)
+2. **Default owner:** Resource type default (e.g., EC2 → `@infrastructure-team`)
+3. **Environment variable:** `GITHUB_ISSUE_ASSIGNEE`
+4. **None:** Issue created without assignee
+
+### Setup Microsoft Teams Notifications
+
+#### 1. Create Incoming Webhook
+
+Follow [Microsoft's guide](https://docs.microsoft.com/en-us/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook) to create a webhook:
+
+```powershell
+# Teams Channel → More options (···) → Connectors → Incoming Webhook
+# Name: Terraform Drift Alerts
+# Copy webhook URL to .env
+```
+
+#### 2. Configure Environment Variables
+
+Update `.env` with Teams settings:
+
+```env
+TEAMS_WEBHOOK_URL=https://your-tenant.webhook.office.com/webhookb2/your-webhook-url
+TEAMS_NOTIFICATION_ENABLED=true
+```
+
+### Example: Automated Workflow Execution
+
+```powershell
+# Run drift detection with GitHub + Teams integration enabled
+python src/main.py --check --workspace production --state-file terraform.tfstate
+```
+
+**What happens:**
+1. Agent detects 3 drifted resources
+2. Searches GitHub for existing issues (deduplication)
+3. Creates 3 GitHub issues (per-resource strategy):
+   - **Issue #42:** `🚨 Drift: aws_instance.web-prod-01 - Tags Modified (production)` → Assigned to `@web-team`
+   - **Issue #43:** `🚨 Drift: aws_db_instance.postgres-main - Instance Type Changed (production)` → Assigned to `@database-team`
+   - **Issue #44:** `🚨 Drift: aws_security_group.api-sg - Ingress Rules Modified (production)` → Assigned to `@backend-team`
+4. Sends adaptive card to Teams channel with summary:
+   - **Total Resources:** 15
+   - **Drifted:** 3
+   - **Severity Breakdown:** CRITICAL: 1, HIGH: 2
+   - **Action Buttons:** Links to GitHub issues
+
+**Sample GitHub Issue:**
+
+```markdown
+## Drift Detection Alert
+
+**Workspace:** `production`  
+**Resource ID:** `i-0123456789abcdef0`  
+**Resource Type:** `aws_instance`  
+**Resource Name:** `web-prod-01`  
+**Severity:** `CRITICAL`  
+
+### Drift Details
+**Type:** Tags Modified
+
+**Changes:**
+- removed_tags: `["Environment"]`
+
+### Policy Violations
+- **Policy:** `policies/tags.yaml`
+  - **Section:** `production.required_tags[0]`
+  - **Impact:** Instance not enrolled in automated backup schedule
+
+### Remediation
+\```bash
+terraform apply -target=aws_instance.web-prod-01
+\```
+
+---
+*Generated by Terraform Drift Detector*
+```
+
+**Sample Teams Notification:**
+
+Teams adaptive card with:
+- 🔴 **Red header** (CRITICAL severity)
+- **Facts:** Workspace, Severity, Resources, Issue #, Detected Time
+- **Action button:** "View Issue on GitHub" → Opens issue #42
+
+---
+
+## Future Releases
+
+### 🚧 Phase 3: Automated Remediation (Not Yet Implemented)
+
+**Goal:** Enable slash command (`/fix-terraform-drift`) on GitHub issues to trigger automated terraform apply via AWX.
+
+**Planned Features:**
+- GitHub webhook listener (FastAPI service)
+- Slash command parser (`/fix-terraform-drift [approve|reject]`)
+- AWX job template execution for terraform apply
+- Post-remediation validation (re-run drift detection)
+- Auto-close issue on successful remediation
+
+**Architecture:**
+```
+GitHub Issue Comment → Webhook → FastAPI Service → AWX API → Terraform Apply → Validation → Close Issue
+```
+
+**See:** `docs/phase3_automated_remediation.md` (to be created)
+
+### 🚧 Phase 4: Testing & CI/CD (Not Yet Implemented)
+
+**Goal:** Comprehensive test coverage for GitHub/Teams integrations and automated PR-based drift checks.
+
+**Planned Features:**
+- Unit tests for `github_tools.py`, `teams_notifications.py`, `teams_parser.py`
+- Integration tests for issue creation workflow
+- GitHub Actions workflow for PR-based drift detection
+- Automated testing of webhook handlers
+
+**See:** `docs/phase4_testing_cicd.md` (to be created)
+
+---
+
 ## Project Structure
 
 ```
 05_terraform_drift_detector/
 ├── src/
-│   ├── main.py                    # CLI entry point + agent builder
+│   ├── main.py                    # CLI entry point + agent builder + GitHub/Teams orchestration
 │   ├── rag/
 │   │   ├── __init__.py
 │   │   └── vector_store.py        # RAG initialization (Chroma + embeddings)
-│   └── tools/
+│   ├── tools/
+│   │   ├── __init__.py
+│   │   ├── terraform_tools.py     # parse_terraform_state tool
+│   │   ├── aws_tools.py           # fetch_cloud_resources tool (boto3)
+│   │   ├── diff_tools.py          # compare_resources tool (deepdiff)
+│   │   ├── policy_tools.py        # analyze_drift_with_policies tool (RAG + LLM)
+│   │   └── github_tools.py        # GitHub API tools (create_issue, search_issues, etc.)
+│   ├── utils/
+│   │   ├── __init__.py
+│   │   └── teams_parser.py        # teams.yaml parser for assignee resolution
+│   └── integrations/
 │       ├── __init__.py
-│       ├── terraform_tools.py     # parse_terraform_state tool
-│       ├── aws_tools.py           # fetch_cloud_resources tool (boto3)
-│       ├── diff_tools.py          # compare_resources tool (deepdiff)
-│       └── policy_tools.py        # analyze_drift_with_policies tool (RAG + LLM)
+│       └── teams_notifications.py # Microsoft Teams adaptive card sender
 ├── policies/
 │   ├── tags.yaml                  # Tag requirements per environment
 │   ├── compliance.yaml            # SOC2/HIPAA/PCI framework mappings
-│   └── security_groups.yaml       # Ingress/egress rule policies
+│   ├── security_groups.yaml       # Ingress/egress rule policies
+│   └── teams.yaml                 # Resource ownership patterns for GitHub assignees
 ├── docs/
 │   └── terraform_best_practices.md # Best practices documentation
 ├── vector_store/                  # Chroma vector store (auto-generated)
+├── test_infrastructure/           # Standalone Terraform configs for manual testing
+│   ├── main.tf                    # EC2 instance for drift testing
+│   ├── outputs.tf                 # 7 outputs for validation
+│   └── README.md                  # 450+ line testing guide
 ├── tests/
 │   ├── conftest.py                # pytest fixtures (mock boto3, LLM, vector store)
 │   ├── test_terraform_tools.py    # Tests for state parsing + redaction
 │   ├── test_aws_tools.py          # Tests for AWS API calls (mocked with moto)
 │   ├── test_diff_tools.py         # Tests for drift comparison
 │   ├── test_policy_tools.py       # Tests for RAG policy analysis
+│   ├── test_github_tools.py       # Tests for GitHub API integration (mocked requests)
+│   ├── test_teams_notifications.py # Tests for Teams webhook (mocked requests)
+│   ├── test_teams_parser.py       # Tests for teams.yaml parser and assignee resolution
+│   ├── test_vector_store.py       # Tests for Chroma initialization
+│   └── test_main.py               # Integration tests for agent + CLI
+├── requirements.txt               # boto3, pyyaml, deepdiff, langchain-chroma, requests
+├── .env.example                   # AWS credentials + GitHub + Teams template
+└── README.md                      # This file
+```
 │   ├── test_vector_store.py       # Tests for Chroma initialization
 │   └── test_main.py               # Integration tests for agent + CLI
 ├── requirements.txt               # boto3, pyyaml, deepdiff, langchain-chroma
@@ -409,11 +682,13 @@ To add Azure/GCP support:
 
 - [ ] Support for Terraform Cloud API (remote state)
 - [ ] Azure and GCP resource drift detection
-- [ ] Automated remediation mode (apply Terraform fixes automatically)
+- [x] ~~GitHub issue tracking integration~~ ✅ **Implemented (Phase 1)**
+- [x] ~~Microsoft Teams notifications~~ ✅ **Implemented (Phase 2)**
+- [ ] Automated remediation via GitHub slash commands (🚧 Phase 3 - see [Future Releases](#future-releases))
+- [ ] GitHub Actions CI/CD integration (🚧 Phase 4 - see [Future Releases](#future-releases))
 - [ ] Web UI for drift visualization (Streamlit)
-- [ ] CI/CD integration (GitHub Actions workflow)
-- [ ] Slack/Teams notifications for critical drift
 - [ ] Historical drift trend analysis
+- [ ] Slack integration (alternative to Teams)
 
 ---
 
