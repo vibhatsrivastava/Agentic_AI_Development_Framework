@@ -36,11 +36,6 @@ def compare_resources(state_resources: str, cloud_resources: str) -> str:
     state_list = state_data.get("resources", [])
     cloud_list = cloud_data.get("resources", [])
     
-    if not state_list:
-        return json.dumps({"error": "No resources in state file"})
-    if not cloud_list:
-        return json.dumps({"error": "No resources fetched from cloud"})
-    
     # Compare each state resource with its cloud counterpart
     drifted = []
     

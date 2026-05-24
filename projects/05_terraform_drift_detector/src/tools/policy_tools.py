@@ -4,7 +4,7 @@ import json
 from langchain_core.tools import tool
 from langchain_core.retrievers import BaseRetriever
 from langchain_core.messages import HumanMessage
-from common.llm_factory import get_chat_llm
+from common import llm_factory
 from common.utils import get_logger
 
 logger = get_logger(__name__)
@@ -57,7 +57,7 @@ def create_policy_analysis_tool(retriever: BaseRetriever):
         
         # Analyze each drifted resource
         enriched_reports = []
-        llm = get_chat_llm()
+        llm = llm_factory.get_chat_llm()
         
         for drift in drifted_resources:
             try:

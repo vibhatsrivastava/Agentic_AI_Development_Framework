@@ -131,6 +131,7 @@ def _extract_relevant_attributes(attributes: dict, resource_type: str) -> dict:
             "engine_version": attributes.get("engine_version"),
             "instance_class": attributes.get("instance_class"),
             "allocated_storage": attributes.get("allocated_storage"),
+            "password": attributes.get("password"),
         })
     elif resource_type == "aws_security_group":
         relevant.update({
