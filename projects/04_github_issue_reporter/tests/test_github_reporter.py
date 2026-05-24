@@ -896,10 +896,6 @@ class TestMainFunction:
         with patch("sys.argv", ["main.py", "--report", "--dry-run"]):
             with pytest.raises(SystemExit):
                 main()
-                
-                captured = capsys.readouterr()
-                # Should execute without error
-                assert captured.out  # Some output should be generated
 
 
 class TestErrorHandling:

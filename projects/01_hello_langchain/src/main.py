@@ -13,12 +13,12 @@ _repo_root = Path(__file__).parent.parent.parent.parent
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
-from dotenv import load_dotenv
-from langchain_core.prompts import PromptTemplate
-from langchain_core.output_parsers import StrOutputParser
+from dotenv import load_dotenv  # noqa: E402
+from langchain_core.prompts import PromptTemplate  # noqa: E402
+from langchain_core.output_parsers import StrOutputParser  # noqa: E402
 
-from common.llm_factory import get_llm
-from common.utils import get_logger
+from common.llm_factory import get_llm  # noqa: E402
+from common.utils import get_logger  # noqa: E402
 
 load_dotenv()
 
