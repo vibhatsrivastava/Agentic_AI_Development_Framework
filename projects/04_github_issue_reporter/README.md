@@ -188,6 +188,123 @@ Argument Parser (--report | --issue N | --auto-analyze)
 └─────────────────────────────────────────────┘
 ```
 
+### End-to-End Solution Workflow
+
+The following diagram illustrates the complete workflow for all three execution modes (Report, Issue Analysis, and Auto-Analyze):
+
+```mermaid
+flowchart TD
+    Start([User Executes CLI]) --> ParseArgs{Parse Arguments}
+    
+    ParseArgs -->|--report| ReportMode[Report Mode]
+    ParseArgs -->|--issue N| IssueMode[Issue Analysis Mode]
+    ParseArgs -->|--auto-analyze| AutoMode[Auto-Analyze Mode]
+    
+    %% Report Mode Flow
+    ReportMode --> CheckMultiRepo1{Multi-Repo<br/>Config?}
+    CheckMultiRepo1 -->|Yes| LoadRepos1[Load repos.json]
+    CheckMultiRepo1 -->|No| SingleRepo1[Use ENV vars]
+    LoadRepos1 --> LoopRepos1[For Each Repository]
+    SingleRepo1 --> FetchIssues[Fetch Open Issues<br/>GitHub API]
+    LoopRepos1 --> FetchIssues
+    
+    FetchIssues --> FormatReport[Format Report<br/>Direct Python]
+    FormatReport --> CheckTeams{--send-teams<br/>flag?}
+    CheckTeams -->|Yes| SendTeams[Send to MS Teams<br/>Adaptive Card]
+    CheckTeams -->|No| DisplayReport[Display in Console]
+    SendTeams --> DisplayReport
+    DisplayReport --> End1([End])
+    
+    %% Issue Analysis Mode Flow
+    IssueMode --> CheckMultiRepo2{Multi-Repo<br/>Config?}
+    CheckMultiRepo2 -->|Yes| LoadRepos2[Load repos.json]
+    CheckMultiRepo2 -->|No| SingleRepo2[Use ENV vars]
+    LoadRepos2 --> LoopRepos2[For Each Repository]
+    SingleRepo2 --> FetchDetails[Fetch Issue Details<br/>GitHub API]
+    LoopRepos2 --> FetchDetails
+    
+    FetchDetails --> CheckExisting{Bot Comment<br/>Exists?}
+    CheckExisting -->|Yes| SkipIssue[Skip - Already Analyzed]
+    CheckExisting -->|No| FetchComments[Fetch Issue Comments<br/>GitHub API]
+    
+    FetchComments --> InitAgent[Initialize LangGraph<br/>ReAct Agent]
+    InitAgent --> LLMAnalysis[LLM Analysis<br/>via Ollama]
+    LLMAnalysis --> GenerateRec[Generate Structured<br/>Recommendation]
+    GenerateRec --> PostComment[Post Comment to GitHub<br/>with Bot Marker]
+    PostComment --> CheckTeamsWebhook1{Teams Webhook<br/>Configured?}
+    CheckTeamsWebhook1 -->|Yes| SendTeamsNotif1[Send Teams Notification]
+    CheckTeamsWebhook1 -->|No| ShowURL1[Display Comment URL]
+    SendTeamsNotif1 --> ShowURL1
+    ShowURL1 --> End2([End])
+    SkipIssue --> End2
+    
+    %% Auto-Analyze Mode Flow
+    AutoMode --> CheckMultiRepo3{Multi-Repo<br/>Config?}
+    CheckMultiRepo3 -->|Yes| LoadRepos3[Load repos.json]
+    CheckMultiRepo3 -->|No| SingleRepo3[Use ENV vars]
+    LoadRepos3 --> LoopRepos3[For Each Repository]
+    SingleRepo3 --> FetchRecent[Fetch Recent Issues<br/>Last 24h - GitHub API]
+    LoopRepos3 --> FetchRecent
+    
+    FetchRecent --> CheckDryRun{--dry-run<br/>flag?}
+    CheckDryRun -->|Yes| DryRunLoop[Preview Mode Loop]
+    CheckDryRun -->|No| ProcessLoop[Process Each Issue]
+    
+    DryRunLoop --> CheckExisting2{Bot Comment<br/>Exists?}
+    CheckExisting2 -->|Yes| SkipDry[Preview: Would Skip]
+    CheckExisting2 -->|No| PreviewAnalyze[Preview: Would Analyze]
+    SkipDry --> NextIssue1{More<br/>Issues?}
+    PreviewAnalyze --> NextIssue1
+    NextIssue1 -->|Yes| DryRunLoop
+    NextIssue1 -->|No| ShowSummary1[Display Summary Report]
+    ShowSummary1 --> End3([End])
+    
+    ProcessLoop --> CheckExisting3{Bot Comment<br/>Exists?}
+    CheckExisting3 -->|Yes| SkipProcessed[Skip - Already Analyzed]
+    CheckExisting3 -->|No| FetchDetails2[Fetch Issue Details & Comments]
+    
+    FetchDetails2 --> InitAgent2[Initialize LangGraph<br/>ReAct Agent]
+    InitAgent2 --> LLMAnalysis2[LLM Analysis<br/>via Ollama]
+    LLMAnalysis2 --> GenerateRec2[Generate Structured<br/>Recommendation]
+    GenerateRec2 --> PostComment2[Post Comment to GitHub]
+    PostComment2 --> CheckTeamsWebhook2{Teams Webhook<br/>Configured?}
+    CheckTeamsWebhook2 -->|Yes| SendTeamsNotif2[Send Teams Notification]
+    CheckTeamsWebhook2 -->|No| LogSuccess[Log Success]
+    SendTeamsNotif2 --> LogSuccess
+    LogSuccess --> NextIssue2{More<br/>Issues?}
+    SkipProcessed --> NextIssue2
+    NextIssue2 -->|Yes| ProcessLoop
+    NextIssue2 -->|No| ShowSummary2[Display Summary Report]
+    ShowSummary2 --> End3
+    
+    %% Styling
+    classDef modeClass fill:#4CAF50,stroke:#2E7D32,stroke-width:2px,color:#fff
+    classDef apiClass fill:#2196F3,stroke:#1565C0,stroke-width:2px,color:#fff
+    classDef llmClass fill:#FF9800,stroke:#E65100,stroke-width:2px,color:#fff
+    classDef decisionClass fill:#9C27B0,stroke:#6A1B9A,stroke-width:2px,color:#fff
+    classDef outputClass fill:#00BCD4,stroke:#006064,stroke-width:2px,color:#fff
+    
+    class ReportMode,IssueMode,AutoMode modeClass
+    class FetchIssues,FetchDetails,FetchComments,FetchRecent,FetchDetails2,PostComment,PostComment2 apiClass
+    class InitAgent,LLMAnalysis,GenerateRec,InitAgent2,LLMAnalysis2,GenerateRec2 llmClass
+    class ParseArgs,CheckMultiRepo1,CheckMultiRepo2,CheckMultiRepo3,CheckTeams,CheckExisting,CheckExisting2,CheckExisting3,CheckDryRun,NextIssue1,NextIssue2,CheckTeamsWebhook1,CheckTeamsWebhook2 decisionClass
+    class DisplayReport,ShowURL1,ShowSummary1,ShowSummary2,SendTeams,SendTeamsNotif1,SendTeamsNotif2 outputClass
+```
+
+**Workflow Legend:**
+- 🟢 **Green Nodes**: Execution modes (Report/Issue/Auto-Analyze)
+- 🔵 **Blue Nodes**: GitHub API operations (fetch, post)
+- 🟠 **Orange Nodes**: LLM/AI processing (analysis, recommendation generation)
+- 🟣 **Purple Nodes**: Decision points (conditionals, loops)
+- 🔷 **Cyan Nodes**: Output operations (display, Teams notifications)
+
+**Key Decision Points:**
+1. **Multi-Repo Config**: Determines single vs. multi-repository execution
+2. **Bot Comment Exists**: Prevents duplicate analysis via marker detection
+3. **--send-teams Flag**: Controls Microsoft Teams notification delivery
+4. **--dry-run Flag**: Enables preview mode without posting to GitHub
+5. **Teams Webhook Configured**: Optional notification on analysis completion
+
 ### Components
 
 | Component | Technology | Purpose |
