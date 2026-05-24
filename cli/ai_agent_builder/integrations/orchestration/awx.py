@@ -9,7 +9,6 @@ Usage:
     ai-agent-builder new-project 05_my_agent --integrations awx
 """
 
-from pathlib import Path
 from typing import Dict, List, Tuple
 
 from ..base import IntegrationModule
@@ -144,14 +143,14 @@ def mock_awx_survey_vars(monkeypatch):
 def awx_output_parser():
     """Parse AWX wrapper JSON output for testing."""
     import json
-    
+
     def parse(output: str) -> dict:
         """Parse JSON output from AWX wrapper."""
         try:
             return json.loads(output)
         except json.JSONDecodeError:
             return {"status": "error", "error": "Invalid JSON output"}
-    
+
     return parse
 '''
 
