@@ -1,7 +1,6 @@
 """Integration tests for main agent and CLI."""
 
 import pytest
-import sys
 from unittest.mock import Mock, patch
 from main import (
     validate_workspace,

@@ -1,7 +1,6 @@
 """Tests for policy-based drift analysis tools."""
 
 import json
-import pytest
 from unittest.mock import Mock
 from tools.policy_tools import create_policy_analysis_tool
 

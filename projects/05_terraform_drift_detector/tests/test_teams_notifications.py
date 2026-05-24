@@ -1,7 +1,5 @@
 """Tests for Microsoft Teams notifications."""
 
-import json
-import pytest
 from unittest.mock import Mock, patch
 from src.integrations.teams_notifications import (
     get_severity_color,

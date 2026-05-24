@@ -2,7 +2,7 @@
 
 import json
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 from src.tools.github_tools import (
     get_github_headers,
     create_github_issue,

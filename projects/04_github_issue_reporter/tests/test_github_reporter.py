@@ -10,8 +10,7 @@ Tests cover:
 
 import pytest
 import json
-from unittest.mock import Mock, patch, MagicMock
-from datetime import date
+from unittest.mock import Mock, patch
 from src.main import (
     list_open_issues,
     get_issue_details,
@@ -853,7 +852,7 @@ class TestMainFunction:
                 
                 main()
                 
-                captured = capsys.readouterr()
+                capsys.readouterr()
                 # Agent should be invoked for issue mode
                 assert mock_agent.invoke.called
 
@@ -961,7 +960,7 @@ class TestAWXMode:
         
         # Run main in AWX mode
         with patch("sys.argv", ["main.py"]):  # No CLI args
-            result = main()
+            main()
         
         # AWX mode should execute without CLI args
         assert mock_github_api.called
@@ -1009,7 +1008,7 @@ class TestAWXMode:
                 }
                 mock_build.return_value = mock_agent
                 
-                result = main()
+                main()
         
         # Should parse issue number from env var and execute
         assert mock_build.called
@@ -1032,7 +1031,7 @@ class TestAWXMode:
         
         # Run main in AWX mode
         with patch("sys.argv", ["main.py"]):  # No CLI args
-            result = main()
+            main()
         
         # Should parse auto-analyze mode and dry-run flag from env vars
         assert mock_github_api.called
@@ -1087,7 +1086,7 @@ class TestAWXMode:
         
         # Run main in AWX mode
         with patch("sys.argv", ["main.py"]):  # No CLI args
-            result = main()
+            main()
         
         # Should parse dry_run=false correctly
         assert mock_github_api.called

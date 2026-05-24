@@ -30,7 +30,6 @@ from tools.github_tools import (
 )
 from utils.teams_parser import get_resource_assignee, parse_teams_config
 from integrations.teams_notifications import (
-    send_drift_issue_notification,
     send_drift_summary_notification,
 )
 

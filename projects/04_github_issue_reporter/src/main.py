@@ -32,7 +32,7 @@ import json
 import os
 import requests
 from datetime import date, datetime, timedelta, timezone
-from typing import Optional, Dict, List
+from typing import Optional, Dict
 from langchain.agents import create_agent
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage
@@ -1632,7 +1632,7 @@ def process_single_repo_auto_analyze(owner: str, repo: str, token: str, dry_run:
                         )
                         
                         if teams_sent:
-                            print(f"   📢 Teams notification sent")
+                            print("   📢 Teams notification sent")
                             
                     except Exception as e:
                         logger.warning(f"Failed to send Teams notification (non-critical): {e}")

@@ -1,7 +1,6 @@
 """Tests for resource comparison and drift detection tools."""
 
 import json
-import pytest
 from tools.diff_tools import compare_resources
 
 

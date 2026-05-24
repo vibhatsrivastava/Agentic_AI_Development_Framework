@@ -1,8 +1,6 @@
 """Tests for Terraform state parsing tools."""
 
 import json
-import pytest
-from pathlib import Path
 from tools.terraform_tools import parse_terraform_state
 
 

@@ -12,8 +12,6 @@ from pathlib import Path
 # Add repo root to path for imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
 
-import chromadb
-from chromadb.config import Settings
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from common.llm_factory import get_embeddings

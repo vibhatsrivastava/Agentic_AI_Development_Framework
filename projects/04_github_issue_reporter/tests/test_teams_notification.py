@@ -8,7 +8,6 @@ Tests the send_teams_notification function to ensure:
 - Notification doesn't break the agent if it fails
 """
 
-import pytest
 import json
 from unittest.mock import Mock, patch
 

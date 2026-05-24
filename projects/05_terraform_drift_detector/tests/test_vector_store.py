@@ -1,7 +1,6 @@
 """Tests for RAG vector store initialization."""
 
 import pytest
-from pathlib import Path
 from unittest.mock import Mock
 from rag.vector_store import initialize_vector_store, get_retriever
 
@@ -34,7 +33,7 @@ def test_initialize_vector_store_builds_new(tmp_path, mock_embeddings, mocker):
     mocker.patch("pathlib.Path.exists", return_value=True)
     
     # Initialize vector store
-    vector_store = initialize_vector_store(
+    initialize_vector_store(
         persist_directory=str(tmp_path / "vector_store"),
         force_rebuild=True
     )
@@ -146,6 +145,6 @@ def test_get_retriever_custom_k():
     mock_retriever = Mock()
     mock_vector_store.as_retriever.return_value = mock_retriever
     
-    retriever = get_retriever(mock_vector_store, k=10)
+    get_retriever(mock_vector_store, k=10)
     
     mock_vector_store.as_retriever.assert_called_once_with(search_kwargs={"k": 10})

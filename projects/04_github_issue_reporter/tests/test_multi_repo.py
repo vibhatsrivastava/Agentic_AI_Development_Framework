@@ -10,10 +10,7 @@ Tests cover:
 
 import pytest
 import json
-import os
-import sys
-import tempfile
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 from src.main import (
     load_repos_config,
     get_repo_token,

@@ -5,7 +5,6 @@ conftest.py — pytest fixtures for Terraform Drift Detector.
 import json
 import pytest
 from unittest.mock import Mock, MagicMock
-from pathlib import Path
 from langchain_core.documents import Document
 
 

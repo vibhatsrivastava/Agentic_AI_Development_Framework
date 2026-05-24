@@ -1,7 +1,6 @@
 """Policy-based drift analysis tools using RAG."""
 
 import json
-from typing import Any
 from langchain_core.tools import tool
 from langchain_core.retrievers import BaseRetriever
 from langchain_core.messages import HumanMessage

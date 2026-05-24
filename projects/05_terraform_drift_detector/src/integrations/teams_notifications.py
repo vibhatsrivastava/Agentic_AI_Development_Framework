@@ -1,10 +1,9 @@
 """Microsoft Teams notifications via adaptive cards for drift detection."""
 
-import json
 import requests
 import time
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 from common.utils import get_logger
 
 logger = get_logger(__name__)
@@ -75,7 +74,7 @@ def send_drift_issue_notification(
                                 "items": [
                                     {
                                         "type": "TextBlock",
-                                        "text": f"🚨 Infrastructure Drift Detected",
+                                        "text": "🚨 Infrastructure Drift Detected",
                                         "weight": "Bolder",
                                         "size": "Large",
                                         "wrap": True

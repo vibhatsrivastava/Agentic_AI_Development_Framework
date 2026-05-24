@@ -1,7 +1,6 @@
 """GitHub API integration tools for issue creation and management."""
 
 import json
-import os
 import requests
 from typing import Optional, List, Dict
 from langchain_core.tools import tool
@@ -99,7 +98,7 @@ def create_github_issue(
         elif e.response.status_code == 404:
             error_msg += f". Repository {owner}/{repo} not found or inaccessible."
         elif e.response.status_code == 422:
-            error_msg += f". Validation failed. Check assignees exist and labels are valid."
+            error_msg += ". Validation failed. Check assignees exist and labels are valid."
         logger.error(error_msg)
         return json.dumps({"success": False, "error": error_msg})
     except Exception as e:

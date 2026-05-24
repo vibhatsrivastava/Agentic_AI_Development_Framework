@@ -10,7 +10,6 @@ Covers:
 - Caching behavior (handler initialized once per process)
 """
 
-import pytest
 from unittest.mock import Mock, patch
 
 
@@ -320,9 +319,9 @@ def test_get_callback_handler_custom_host(monkeypatch, mock_langfuse):
                 "LANGFUSE_PUBLIC_KEY": "pk-test",
                 "LANGFUSE_SECRET_KEY": "sk-test",
             }.get(vault_key, default)
-            
-            handler = get_langfuse_callback_handler()
-        
+
+            get_langfuse_callback_handler()
+
         # In Langfuse 4.x, global client is initialized first with keys
         mock_langfuse_client.assert_called_once_with(
             public_key="pk-test",
@@ -375,12 +374,12 @@ def test_get_callback_handler_initialization_error(monkeypatch, mock_langfuse):
 
 def test_reset_handler():
     """Test reset_handler clears cached handler for re-initialization."""
-    from common.langfuse_tracing import reset_handler, _CALLBACK_HANDLER, _INITIALIZATION_ATTEMPTED
-    
-    reset_handler()
-    
-    # Verify internal state is reset
     import common.langfuse_tracing
+    from common.langfuse_tracing import reset_handler
+
+    reset_handler()
+
+    # Verify internal state is reset
     assert common.langfuse_tracing._CALLBACK_HANDLER is None
     assert common.langfuse_tracing._INITIALIZATION_ATTEMPTED is False
 

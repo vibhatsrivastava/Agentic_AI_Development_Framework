@@ -1,7 +1,6 @@
 """Tests for AWS cloud resource fetching tools."""
 
 import json
-import pytest
 from unittest.mock import MagicMock
 from botocore.exceptions import ClientError
 from tools.aws_tools import fetch_cloud_resources
