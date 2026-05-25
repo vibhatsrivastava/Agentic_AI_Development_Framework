@@ -53,6 +53,9 @@ def fetch_cloud_resources(resource_ids: str, resource_type: str) -> str:
         elif resource_type == "aws_s3_bucket":
             return _fetch_s3_buckets(id_list, aws_access_key_id,
                                     aws_secret_access_key, aws_region)
+        elif resource_type == "aws_ssm_parameter":
+            return _fetch_ssm_parameters(id_list, aws_access_key_id,
+                                         aws_secret_access_key, aws_region)
         else:
             return json.dumps({"error": f"Unsupported resource type: {resource_type}"})
     
@@ -87,19 +90,90 @@ def _fetch_ec2_instances(instance_ids: list[str], access_key: str,
     instances = []
     for reservation in response.get("Reservations", []):
         for instance in reservation.get("Instances", []):
-            instances.append({
+            tags_dict = {tag["Key"]: tag["Value"] for tag in instance.get("Tags", [])}
+            attributes = {
                 "id": instance["InstanceId"],
                 "instance_type": instance.get("InstanceType"),
                 "ami": instance.get("ImageId"),
                 "availability_zone": instance.get("Placement", {}).get("AvailabilityZone"),
                 "vpc_security_group_ids": [sg["GroupId"] for sg in instance.get("SecurityGroups", [])],
-                "tags": {tag["Key"]: tag["Value"] for tag in instance.get("Tags", [])},
+                "tags": tags_dict,
+                # Optionally add more fields as needed
+            }
+            instances.append({
+                "id": instance["InstanceId"],
+                "type": "aws_instance",
+                "name": instance.get("Tags", [{}])[0].get("Value", "") if instance.get("Tags") else "",
+                "tags": tags_dict,
+                "instance_type": instance.get("InstanceType"),
+                "ami": instance.get("ImageId"),
+                "availability_zone": instance.get("Placement", {}).get("AvailabilityZone"),
+                "vpc_security_group_ids": [sg["GroupId"] for sg in instance.get("SecurityGroups", [])],
+                "attributes": attributes
             })
-    
     logger.info(f"Fetched {len(instances)} EC2 instances from AWS")
-    return json.dumps({
+    result_json = json.dumps({
         "resource_type": "aws_instance",
         "resources": instances
+    }, indent=2)
+    print("[DEBUG] _fetch_ec2_instances JSON output:\n" + result_json)
+    return result_json
+
+
+def _fetch_ssm_parameters(parameter_names: list[str], access_key: str,
+                          secret_key: str, region: str) -> str:
+    """Fetch SSM parameter metadata from AWS."""
+    rate_limiter.acquire()
+
+    ssm_client = boto3.client(
+        "ssm",
+        region_name=region,
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+    )
+
+    parameters = []
+    for name in parameter_names:
+        try:
+            response = ssm_client.get_parameter(Name=name, WithDecryption=False)
+            parameter = response.get("Parameter", {})
+
+            tags_dict = {}
+            try:
+                tags_response = ssm_client.list_tags_for_resource(
+                    ResourceType="Parameter",
+                    ResourceId=name,
+                )
+                tags_dict = {tag["Key"]: tag["Value"] for tag in tags_response.get("Tags", [])}
+            except ClientError as e:
+                logger.warning(f"Unable to fetch tags for SSM parameter {name}: {e}")
+
+            attributes = {
+                "id": parameter.get("Name"),
+                "type": parameter.get("Type"),
+                "arn": parameter.get("ARN"),
+                "description": parameter.get("Description"),
+                "key_id": parameter.get("KeyId") if parameter.get("Type") == "SecureString" else None,
+                "tags": tags_dict,
+            }
+            parameters.append({
+                "id": parameter.get("Name"),
+                "type": "aws_ssm_parameter",
+                "name": parameter.get("Name"),
+                "tags": tags_dict,
+                "attributes": attributes
+            })
+        except ClientError as e:
+            error_code = e.response["Error"]["Code"]
+            if error_code == "ParameterNotFound":
+                logger.warning(f"SSM parameter not found: {name}")
+            else:
+                raise
+
+    logger.info(f"Fetched {len(parameters)} SSM parameters from AWS")
+    return json.dumps({
+        "resource_type": "aws_ssm_parameter",
+        "resources": parameters
     }, indent=2)
 
 

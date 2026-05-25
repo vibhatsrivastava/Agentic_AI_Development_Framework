@@ -31,8 +31,10 @@ def test_compare_resources_no_drift():
     })
     
     result_json = compare_resources.invoke({
-        "state_resources": state_resources,
-        "cloud_resources": cloud_resources
+        "payload": {
+            "state_resources": state_resources,
+            "cloud_resources": cloud_resources
+        }
     })
     result = json.loads(result_json)
     
@@ -190,14 +192,96 @@ def test_compare_resources_invalid_json_input():
     assert "error" in result
 
 
+def test_compare_resources_nested_input_wrapper():
+    """Test handling of wrapped input payloads from agent tool calls."""
+    state_resources = json.dumps({
+        "resources": [
+            {
+                "type": "aws_instance",
+                "name": "web-prod-01",
+                "id": "i-abc123",
+                "tags": {"Environment": "prod"},
+                "attributes": {"instance_type": "t3.medium"}
+            }
+        ]
+    })
+    cloud_resources = json.dumps({
+        "resource_type": "aws_instance",
+        "resources": [
+            {
+                "id": "i-abc123",
+                "tags": {"Environment": "prod"},
+                "attributes": {"instance_type": "t3.medium"}
+            }
+        ]
+    })
+
+    result_json = compare_resources.invoke({
+        "payload": {
+            "state_resources": state_resources,
+            "cloud_resources": cloud_resources
+        }
+    })
+    result = json.loads(result_json)
+
+    assert result["total_drifted"] == 0
+    assert len(result["drifted_resources"]) == 0
+
+
+def test_compare_resources_skip_unsupported_state_type():
+    """Test that unsupported state resource types are skipped when cloud data only covers other types."""
+    state_resources = json.dumps({
+        "resources": [
+            {
+                "type": "aws_ssm_parameter",
+                "name": "amazon_linux_2023_ami",
+                "id": "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64",
+                "tags": {},
+                "attributes": {"id": "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64", "tags": {}}
+            },
+            {
+                "type": "aws_instance",
+                "name": "drift_test",
+                "id": "i-abc123",
+                "tags": {"Environment": "prod"},
+                "attributes": {"instance_type": "t3.medium"}
+            }
+        ]
+    })
+    cloud_resources = json.dumps({
+        "resource_type": "aws_instance",
+        "resources": [
+            {
+                "id": "i-abc123",
+                "type": "aws_instance",
+                "tags": {"Environment": "prod"},
+                "attributes": {"instance_type": "t3.medium"}
+            }
+        ]
+    })
+
+    result_json = compare_resources.invoke({
+        "payload": {
+            "state_resources": state_resources,
+            "cloud_resources": cloud_resources
+        }
+    })
+    result = json.loads(result_json)
+
+    assert result["total_drifted"] == 0
+    assert len(result["drifted_resources"]) == 0
+
+
 def test_compare_resources_error_from_previous_tool():
     """Test handling of error responses from previous tools."""
     state_resources = json.dumps({"error": "State parse failed"})
     cloud_resources = json.dumps({"resources": []})
     
     result_json = compare_resources.invoke({
-        "state_resources": state_resources,
-        "cloud_resources": cloud_resources
+        "payload": {
+            "state_resources": state_resources,
+            "cloud_resources": cloud_resources
+        }
     })
     result = json.loads(result_json)
     

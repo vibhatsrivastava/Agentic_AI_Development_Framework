@@ -49,6 +49,14 @@ def test_validate_state_file_invalid_extension():
         validate_state_file("terraform.json")
 
 
+def test_validate_state_file_windows_backslash_path(sample_state_file):
+    """Test state file validation accepts Windows backslash paths."""
+    path = validate_state_file(str(sample_state_file).replace('/', '\\'))
+
+    assert path.exists()
+    assert str(path).endswith(".tfstate")
+
+
 def test_validate_state_file_path_traversal():
     """Test state file validation prevents path traversal."""
     with pytest.raises(ValueError, match="Invalid state file path"):

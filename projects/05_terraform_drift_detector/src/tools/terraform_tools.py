@@ -79,24 +79,29 @@ def _redact_sensitive_attributes(attributes: dict, sensitive_paths: list) -> dic
     Returns:
         Attributes dict with sensitive values replaced with [REDACTED]
     """
+    import logging
     redacted = attributes.copy()
-    
+
     for path in sensitive_paths:
-        if not path:
+        if not path or not isinstance(path, list):
             continue
-        
-        # Navigate to the parent of the target attribute
+
+        # Only handle paths where all elements are strings
+        if not all(isinstance(k, str) for k in path):
+            logger.warning(f"Skipping sensitive path with non-string keys: {path}")
+            continue
+
         current = redacted
         for key in path[:-1]:
             if isinstance(current, dict) and key in current:
                 current = current[key]
             else:
                 break
-        
+
         # Redact the final key
         if isinstance(current, dict) and path[-1] in current:
             current[path[-1]] = "[REDACTED]"
-    
+
     return redacted
 
 

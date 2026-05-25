@@ -124,8 +124,8 @@ def validate_state_file(state_file_path: str) -> Path:
     Raises:
         ValueError: If path is invalid or file doesn't exist
     """
-    # Security: prevent path traversal
-    if not re.match(r"^[a-zA-Z0-9/_.-]+\.tfstate$", state_file_path):
+    # Security: prevent path traversal and allow Windows-style paths
+    if not re.match(r"^[a-zA-Z0-9_./\\\\:\\-]+\.tfstate$", state_file_path):
         raise ValueError(
             f"Invalid state file path: '{state_file_path}'. "
             "Must end with .tfstate and contain only safe characters."

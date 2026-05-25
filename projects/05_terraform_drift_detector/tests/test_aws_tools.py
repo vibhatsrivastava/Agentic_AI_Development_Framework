@@ -71,6 +71,36 @@ def test_fetch_cloud_resources_unsupported_type(mock_env_vars):
     assert "Unsupported resource type" in result["error"]
 
 
+def test_fetch_cloud_resources_ssm_parameter_success(mock_env_vars, mocker):
+    """Test fetching AWS SSM parameters from cloud."""
+    mock_client = MagicMock()
+    mock_client.get_parameter.return_value = {
+        "Parameter": {
+            "Name": "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64",
+            "Type": "String",
+            "ARN": "arn:aws:ssm:us-east-1:123456789012:parameter/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64",
+            "Description": "Amazon Linux 2023 AMI parameter"
+        }
+    }
+    mock_client.list_tags_for_resource.return_value = {
+        "Tags": [
+            {"Key": "Project", "Value": "drift-detector-demo"}
+        ]
+    }
+    mocker.patch("boto3.client", return_value=mock_client)
+
+    result_json = fetch_cloud_resources.invoke({
+        "resource_ids": "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64",
+        "resource_type": "aws_ssm_parameter"
+    })
+    result = json.loads(result_json)
+
+    assert result["resource_type"] == "aws_ssm_parameter"
+    assert len(result["resources"]) == 1
+    assert result["resources"][0]["id"] == "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
+    assert result["resources"][0]["type"] == "aws_ssm_parameter"
+
+
 def test_fetch_cloud_resources_missing_aws_credentials(monkeypatch):
     """Test handling of missing AWS credentials."""
     # Remove AWS env vars
