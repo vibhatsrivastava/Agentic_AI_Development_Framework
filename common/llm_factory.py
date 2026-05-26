@@ -135,9 +135,11 @@ def get_embeddings(model: str = None) -> OllamaEmbeddings:
     """
     # Attach Langfuse callback for automatic tracing (if enabled)
     handler = get_langfuse_callback_handler()
-    # callbacks are not supported by OllamaEmbeddings (pydantic v2 strict)
+    callbacks = [handler] if handler else []
+
     return OllamaEmbeddings(
         model=model or _DEFAULT_EMBEDDING_MODEL,
         base_url=_BASE_URL,
         client_kwargs={"headers": _auth_headers()},
+        callbacks=callbacks,
     )
