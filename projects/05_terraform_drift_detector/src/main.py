@@ -124,8 +124,14 @@ def validate_state_file(state_file_path: str) -> Path:
     Raises:
         ValueError: If path is invalid or file doesn't exist
     """
-    # Security: prevent path traversal and allow Windows-style paths
-    if not re.match(r"^[a-zA-Z0-9_./\\\\:\\-]+\.tfstate$", state_file_path):
+    # Normalize Windows backslashes to the OS separator so Windows-style
+    # paths (e.g. "C:\\path\\to\\file.tfstate" or "\\tmp\\...")
+    # resolve correctly on non-Windows runners.
+    if "\\" in state_file_path:
+        state_file_path = state_file_path.replace("\\", os.sep)
+
+    # Security: prevent path traversal and allow safe characters
+    if not re.match(r"^[a-zA-Z0-9_./\\:\-]+\.tfstate$", state_file_path):
         raise ValueError(
             f"Invalid state file path: '{state_file_path}'. "
             "Must end with .tfstate and contain only safe characters."
