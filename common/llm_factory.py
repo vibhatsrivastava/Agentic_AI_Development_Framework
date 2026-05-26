@@ -137,9 +137,10 @@ def get_embeddings(model: str = None) -> OllamaEmbeddings:
     handler = get_langfuse_callback_handler()
     callbacks = [handler] if handler else []
 
+    # OllamaEmbeddings does not accept callback handlers in its pydantic schema
+    # (callbacks are intended for LLM/chat clients). Do not pass callbacks here.
     return OllamaEmbeddings(
         model=model or _DEFAULT_EMBEDDING_MODEL,
         base_url=_BASE_URL,
         client_kwargs={"headers": _auth_headers()},
-        callbacks=callbacks,
     )

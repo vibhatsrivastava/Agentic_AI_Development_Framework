@@ -1,0 +1,14 @@
+from projects._05_terraform_drift_detector.src.tools.diff_tools import compare_resources_raw
+
+# Raw payload captured from the failing run (truncated/edited for safe parsing)
+raw = '''{"cloud_resources":{"resource_type":"aws_instance","resources":[{"id":"i-0dcbe8a32d59bbff8","type":"aws_instance","name":"drift-detector-test-instance","tags":{"Name":"drift-detector-test-instance","Project":"drift-detector-demo","ManagedBy":"terraform","Owner":"test-user"},"instance_type":"t2.micro","ami":"ami-09ed39e30153c3bf9","availability_zone":"ap-south-1b","vpc_security_group_ids":["sg-00a12d0fe8a095a43"],"attributes":{"id":"i-0dcbe8a32d59bbff8","instance_type":"t2.micro","ami":"ami-09ed39e30153c3bf9","availability_zone":"ap-south-1b","vpc_security_group_ids":["sg-00a12d0fe8a095a43"],"tags":{"Name":"drift-detector-test-instance","Project":"drift-detector-demo","ManagedBy":"terraform","Owner":"test-user"}}}]},"payload":[{"type":"aws_ssm_parameter","name":"amazon_linux_2023_ami","id":"/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64","tags":{},"attributes":{"id":"/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64","tags":{}}},{"type":"aws_instance","name":"drift_test","id":"i-0dcbe8a32d59bbff8","tags":{"Environment":"production","ManagedBy":"terraform","Name":"drift-detector-test-instance","Owner":"test-user","Project":"drift-detector-demo"},"attributes":{"id":"i-0dcbe8a32d59bbff8","tags":{"Environment":"production","ManagedBy":"terraform","Name":"drift-detector-test-instance","Owner":"test-user","Project":"drift-detector-demo"},"instance_type":"t2.micro","ami":"ami-09ed39e30153c3bf9","availability_zone":"ap-south-1b","vpc_security_group_ids":["sg-00a12d0fe8a095a43"]}}],"state_resources":[{"type":"aws_ssm_parameter","name":"amazon_linux_2023_ami","id":"/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64","tags":{},"attributes":{"id":"/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64","tags":{}}},{"type":"aws_instance","name":"drift_test","id":"i-0dcbe8a32d59bbff8","tags":{"Environment":"production","ManagedBy":"terraform","Name":"drift-detector-test-instance","Owner":"test-user","Project":"drift-detector-demo"},"attributes":{"id":"i-0dcbe8a32d59bbff8","tags":{"Environment":"production","ManagedBy":"terraform","Name":"drift-detector-test-instance","Owner":"test-user","Project":"drift-detector-demo"},"instance_type":"t2.micro","ami":"ami-09ed39e30153c3bf9","availability_zone":"ap-south-1b","vpc_security_group_ids":["sg-00a12d0fe8a095a43"]}}]}'''
+
+# Prefer calling .func when present (tool wrapper) to mirror runtime
+try:
+    if hasattr(compare_resources_raw, 'func'):
+        out = compare_resources_raw.func(raw=raw)
+    else:
+        out = compare_resources_raw(raw)
+    print('Recovery output:\n', out)
+except Exception as e:
+    print('Recovery call failed:', e)

@@ -2,6 +2,7 @@
 
 from .terraform_tools import parse_terraform_state
 from .diff_tools import compare_resources
+from .diff_tools import compare_resources_raw
 from .policy_tools import create_policy_analysis_tool
 
 # Optional heavy imports: import lazily and tolerate missing optional deps during tests
@@ -29,6 +30,7 @@ __all__ = [
     "parse_terraform_state",
     "fetch_cloud_resources",
     "compare_resources",
+    "compare_resources_raw",
     "create_policy_analysis_tool",
     "create_github_issue",
     "search_existing_issues",

@@ -363,24 +363,6 @@ def compare_resources(
         if isinstance(val, list):
             return {'resources': val}
         if isinstance(val, str):
-<<<<<<< Updated upstream
-            # Try to parse directly. If parsing fails, attempt lightweight sanitization
-            try:
-                parsed = json.loads(val)
-                return ensure_resource_dict(parsed)
-            except Exception as e:
-                import re
-                # Remove common truncation artifacts like ellipses and stray commas
-                sanitized = re.sub(r"\.{3,}", "", val)
-                sanitized = sanitized.replace(',}', '}').replace(',]', ']')
-                try:
-                    parsed = json.loads(sanitized)
-                    logger.warning("[WARN] Input JSON contained truncation artifacts; used sanitized version for parsing.")
-                    return ensure_resource_dict(parsed)
-                except Exception as e2:
-                    logger.error(f"[ERROR] Failed to parse input as JSON. Exception: {e}\nSanitized exception: {e2}\nRaw value: {val}")
-                    return {'error': f'Invalid JSON input: {e}', 'raw': val}
-=======
             # Try multiple strategies to handle truncated / malformed JSON often
             # produced by LLM/tool output (ellipses, trailing commas, partial output)
             def try_parse(s: str):
@@ -389,17 +371,17 @@ def compare_resources(
                 except Exception:
                     pass
                 try:
-                    # Sometimes the tool returns a Python-like literal
                     return ast.literal_eval(s)
                 except Exception:
                     pass
                 return None
 
+            # First attempt: direct parse
             parsed = try_parse(val)
             if parsed is not None:
                 return ensure_resource_dict(parsed)
 
-            # Clean common truncation patterns: remove ellipses and stray trailing commas
+            # Next, clean common truncation patterns: remove ellipses and stray trailing commas
             cleaned = re.sub(r'\.{2,}', '', val)
             cleaned = re.sub(r',\s*(?=[}\]])', '', cleaned)
             parsed = try_parse(cleaned)
@@ -407,7 +389,7 @@ def compare_resources(
                 logger.warning("[WARN] Parsed input after cleaning truncated JSON/ellipses")
                 return ensure_resource_dict(parsed)
 
-            # As a last resort, try to extract the first {...} or [...] substring
+            # Extract first JSON object or array as a last resort
             m_obj = re.search(r"(\{.*\})", cleaned, flags=re.S)
             if m_obj:
                 snippet = m_obj.group(1)
@@ -426,7 +408,6 @@ def compare_resources(
 
             logger.error(f"[ERROR] Failed to parse input as JSON after sanitization. Raw value length={len(val)}")
             return {'error': 'Invalid JSON input: parsing failed after sanitization', 'raw_length': len(val)}
->>>>>>> Stashed changes
         return {'resources': []}
 
     # Always wrap arrays as dicts with 'resources' key for both state and cloud
@@ -437,10 +418,199 @@ def compare_resources(
 
     state_dict = ensure_resource_dict(state_resources)
     cloud_dict = ensure_resource_dict(cloud_resources)
+    # Sanitize resource entries: items may be strings (malformed JSON fragments)
+    def sanitize_resources_dict(d: dict) -> dict:
+        if not isinstance(d, dict):
+            return {'resources': []}
+        res_list = d.get('resources') or []
+        sanitized = []
+        for item in res_list:
+            # Coerce sets/tuples
+            if isinstance(item, (set, tuple)):
+                item = list(item)
+            # If item is a string, try to parse into dict
+            if isinstance(item, str):
+                parsed = try_parse(item)
+                if isinstance(parsed, dict):
+                    item = parsed
+                else:
+                    # Try to extract an object/array snippet
+                    m_obj = re.search(r"(\{.*\})", item, flags=re.S)
+                    if m_obj:
+                        parsed = try_parse(m_obj.group(1))
+                        if isinstance(parsed, dict):
+                            item = parsed
+                        else:
+                            # skip unparseable string entries
+                            logger.debug("Skipping unparseable resource entry (string)")
+                            continue
+                    else:
+                        logger.debug("Skipping non-JSON string resource entry")
+                        continue
+            # If now a dict, filter allowed fields
+            if isinstance(item, dict):
+                sanitized.append({k: v for k, v in item.items() if k in {"id", "tags", "attributes", "type", "name"}})
+            else:
+                # Skip unexpected types
+                logger.debug(f"Skipping resource entry of unexpected type: {type(item)}")
+        return {'resources': sanitized}
+
+    state_dict = sanitize_resources_dict(state_dict)
+    cloud_dict = sanitize_resources_dict(cloud_dict)
     result = _compare_resources_impl(state_dict, cloud_dict)
     json_result = json.dumps(result, indent=2)
     print("[DEBUG] FINAL compare_resources JSON output (to LLM):\n" + json_result)
     return json_result
+
+
+@tool
+def compare_resources_raw(raw: str) -> str:
+    """Safe wrapper that accepts a single raw string and extracts
+    `state_resources` and `cloud_resources` heuristically before calling
+    the comparator. This helps when models return complex/embedded JSON
+    that is difficult to parse into structured arguments.
+    """
+    # Local try-parse helpers
+    def try_parse(s: str):
+        try:
+            return json.loads(s)
+        except Exception:
+            pass
+        try:
+            return ast.literal_eval(s)
+        except Exception:
+            pass
+        return None
+
+    if not isinstance(raw, str):
+        return json.dumps({"error": "compare_resources_raw expects a raw string"})
+
+    parsed = try_parse(raw)
+    state = None
+    cloud = None
+    if isinstance(parsed, dict):
+        # Common shapes: {'payload': {...}} or top-level keys
+        if 'payload' in parsed and isinstance(parsed['payload'], dict):
+            parsed = parsed['payload']
+        state = parsed.get('state_resources') or parsed.get('state')
+        cloud = parsed.get('cloud_resources') or parsed.get('cloud')
+
+    # Fallback: extract JSON fields by name
+    def extract_field(s: str, field: str):
+        pat = re.compile(r'"' + re.escape(field) + r'"\s*:\s*')
+        m = pat.search(s)
+        if not m:
+            return None
+        idx = m.end()
+        while idx < len(s) and s[idx].isspace():
+            idx += 1
+        if idx >= len(s) or s[idx] not in ('{', '['):
+            return None
+        open_ch = s[idx]
+        close_ch = '}' if open_ch == '{' else ']'
+        depth = 0
+        end_idx = idx
+        for i in range(idx, len(s)):
+            ch = s[i]
+            if ch == open_ch:
+                depth += 1
+            elif ch == close_ch:
+                depth -= 1
+                if depth == 0:
+                    end_idx = i + 1
+                    break
+        snippet = s[idx:end_idx]
+        if not snippet:
+            return None
+        parsed_snip = try_parse(snippet)
+        if parsed_snip is not None:
+            return parsed_snip
+        cleaned = re.sub(r'\.{2,}', '', snippet)
+        cleaned = re.sub(r',\s*(?=[}\]])', '', cleaned)
+        return try_parse(cleaned)
+
+    if state is None:
+        state = extract_field(raw, 'state_resources') or extract_field(raw, 'state')
+    if cloud is None:
+        cloud = extract_field(raw, 'cloud_resources') or extract_field(raw, 'cloud_resources')
+
+    if state is None or cloud is None:
+        # Try to find arrays anywhere and assume first array is state or cloud heuristically
+        arrs = re.findall(r'(\[.*?\])', raw, flags=re.S)
+        for a in arrs:
+            parsed_a = try_parse(a)
+            if isinstance(parsed_a, list):
+                if state is None:
+                    state = parsed_a
+                elif cloud is None:
+                    cloud = parsed_a
+                if state is not None and cloud is not None:
+                    break
+
+    if state is None or cloud is None:
+        return json.dumps({"error": "Unable to extract state_resources and cloud_resources from raw input"})
+
+    # Normalize to dicts for comparator
+    # Coerce sets/tuples to lists, lists to {'resources': ...}, leave dicts as-is
+    if isinstance(state, (set, tuple)):
+        state = list(state)
+    if isinstance(cloud, (set, tuple)):
+        cloud = list(cloud)
+
+    if isinstance(state, list):
+        state = {'resources': state}
+    if isinstance(cloud, list):
+        cloud = {'resources': cloud}
+
+    # If values are still unexpected types, return an informative error
+    if not isinstance(state, dict) or not isinstance(cloud, dict):
+        return json.dumps({"error": "Extracted state/cloud are not JSON objects", "state_type": str(type(state)), "cloud_type": str(type(cloud))})
+    # Sanitize resource entries: items may be strings (malformed JSON fragments)
+    def sanitize_resources_dict(d: dict) -> dict:
+        if not isinstance(d, dict):
+            return {'resources': []}
+        res_list = d.get('resources') or []
+        sanitized = []
+        for item in res_list:
+            # Coerce sets/tuples
+            if isinstance(item, (set, tuple)):
+                item = list(item)
+            # If item is a string, try to parse into dict
+            if isinstance(item, str):
+                parsed = try_parse(item)
+                if isinstance(parsed, dict):
+                    item = parsed
+                else:
+                    # Try to extract an object/array snippet
+                    m_obj = re.search(r"(\{.*\})", item, flags=re.S)
+                    if m_obj:
+                        parsed = try_parse(m_obj.group(1))
+                        if isinstance(parsed, dict):
+                            item = parsed
+                        else:
+                            # skip unparseable string entries
+                            logger.debug("Skipping unparseable resource entry (string)")
+                            continue
+                    else:
+                        logger.debug("Skipping non-JSON string resource entry")
+                        continue
+            # If now a dict, filter allowed fields
+            if isinstance(item, dict):
+                sanitized.append({k: v for k, v in item.items() if k in {"id", "tags", "attributes", "type", "name"}})
+            else:
+                # Skip unexpected types
+                logger.debug(f"Skipping resource entry of unexpected type: {type(item)}")
+        return {'resources': sanitized}
+
+    state = sanitize_resources_dict(state)
+    cloud = sanitize_resources_dict(cloud)
+
+    try:
+        result = _compare_resources_impl(state, cloud)
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.exception("Error running comparator on extracted payload")
+        return json.dumps({"error": f"Comparator failure: {str(e)}"})
 
 
 def _compare_tags(state_tags: dict, cloud_tags: dict) -> dict:

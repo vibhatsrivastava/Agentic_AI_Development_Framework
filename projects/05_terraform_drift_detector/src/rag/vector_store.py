@@ -32,15 +32,29 @@ def initialize_vector_store(
     """
     persist_path = Path(persist_directory)
     
-    # Load existing vector store if available
+    # Simple in-process cache to avoid reloading/rebuilding vector stores
+    # during the lifetime of the process. Keyed by persist_directory so
+    # multiple stores can be used for different projects.
+    global _VECTOR_STORE_CACHE
+    try:
+        _VECTOR_STORE_CACHE
+    except NameError:
+        _VECTOR_STORE_CACHE = {}
+
+    # Load existing vector store if available on disk and not forcing rebuild
     if persist_path.exists() and not force_rebuild:
+        if persist_directory in _VECTOR_STORE_CACHE:
+            logger.info(f"Reusing cached vector store for {persist_directory}")
+            return _VECTOR_STORE_CACHE[persist_directory]
         logger.info(f"Loading existing vector store from {persist_directory}")
         try:
-            return langchain_chroma.Chroma(
+            store = langchain_chroma.Chroma(
                 persist_directory=persist_directory,
                 embedding_function=llm_factory.get_embeddings(),
                 collection_name=collection_name,
             )
+            _VECTOR_STORE_CACHE[persist_directory] = store
+            return store
         except Exception as e:
             logger.warning(f"Failed to load existing vector store: {e}. Rebuilding...")
     
@@ -105,7 +119,9 @@ def initialize_vector_store(
     
     logger.info(f"Vector store created with {len(chunks)} chunks")
     logger.info(f"Persisted to: {persist_directory}")
-    
+
+    # Cache and return
+    _VECTOR_STORE_CACHE[persist_directory] = vector_store
     return vector_store
 
 

@@ -28,6 +28,7 @@ from tools import (
     parse_terraform_state,
     fetch_cloud_resources,
     compare_resources,
+    compare_resources_raw,
     create_policy_analysis_tool,
 )
 from tools.github_tools import (
@@ -398,7 +399,7 @@ def send_teams_notifications(json_data: dict, created_issues: list, workspace: s
         logger.error(f"Error sending Teams notifications: {e}")
 
 
-def create_agent(retriever):
+def create_agent(retriever, enforce_json: bool = False):
     """
     Create LangGraph ReAct agent with drift detection tools.
     
@@ -408,7 +409,12 @@ def create_agent(retriever):
     Returns:
         Compiled agent graph
     """
-    llm = get_chat_llm()
+    # When enforce_json is set, request Ollama's JSON output mode to reduce
+    # malformed tool-call outputs and avoid recovery retries.
+    if enforce_json:
+        llm = get_chat_llm(format="json")
+    else:
+        llm = get_chat_llm()
     
     # Create policy analysis tool bound to retriever
     analyze_drift_with_policies = create_policy_analysis_tool(retriever)
@@ -439,6 +445,12 @@ def run_check_mode(args):
         args: Parsed command-line arguments
     """
     logger.info(f"Starting drift check for workspace: {args.workspace}")
+    # Respect explicit DRY_RUN env var to disable network side-effects even if .env enables them
+    dry_run = os.getenv("DRY_RUN", "false").lower() == "true"
+    if dry_run:
+        logger.info("DRY_RUN=true: disabling GitHub and Teams side-effects for this run")
+        os.environ["GITHUB_ISSUE_ENABLED"] = "false"
+        os.environ["TEAMS_NOTIFICATION_ENABLED"] = "false"
     
     # Validate inputs
     try:
@@ -464,7 +476,7 @@ def run_check_mode(args):
     
     # Create agent
     logger.info("Creating drift detection agent...")
-    agent = create_agent(retriever)
+    agent = create_agent(retriever, enforce_json=True)
     
     # Construct user prompt
     user_prompt = f"""Check workspace '{args.workspace}' for infrastructure drift.
@@ -477,24 +489,40 @@ Steps to follow:
 
 Provide a structured markdown report with drift summary and remediation commands."""
     
-    # Invoke agent
+    # Invoke agent with retry/backoff to handle transient streaming truncation
     logger.info("Invoking agent for drift analysis...")
     try:
-        result = agent.invoke(
-            {"messages": [HumanMessage(content=user_prompt)]},
-            config={"recursion_limit": 15}
-        )
-        
+        result = None
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
+            try:
+                result = agent.invoke(
+                    {"messages": [HumanMessage(content=user_prompt)]},
+                    config={"recursion_limit": 50}
+                )
+                break
+            except Exception as invoke_err:
+                # Retry on connection/streaming errors which indicate truncated body
+                import time
+                import httpx
+                msg = str(invoke_err)
+                logger.warning(f"Agent invoke attempt {attempt} failed: {msg}")
+                if attempt < max_attempts:
+                    time.sleep(1 * attempt)
+                    continue
+                # If final attempt fails, re-raise for existing recovery logic below
+                raise
+
         # Extract final answer
         answer = result["messages"][-1].content
-        
+
         # Print report to stdout
         print("\n" + "=" * 80)
         print(f"## Drift Analysis Report — {args.workspace}")
         print("=" * 80)
         print(answer)
         print("=" * 80 + "\n")
-        
+
         # Parse JSON data for GitHub issue creation
         json_data = None
         try:
@@ -509,22 +537,74 @@ Provide a structured markdown report with drift summary and remediation commands
             logger.warning(f"Failed to parse JSON from agent output: {e}")
         except Exception as e:
             logger.warning(f"Error extracting JSON: {e}")
-        
+
         # Create GitHub issues if enabled and drift detected
         if json_data and json_data.get("drift_detected"):
             github_enabled = os.getenv("GITHUB_ISSUE_ENABLED", "false").lower() == "true"
             if github_enabled:
                 logger.info("GitHub issue creation is enabled")
                 created_issues = create_github_issues(json_data, args.workspace)
-                
+
                 # Send Teams notifications if enabled
                 teams_enabled = os.getenv("TEAMS_NOTIFICATION_ENABLED", "false").lower() == "true"
                 if teams_enabled and created_issues:
                     send_teams_notifications(json_data, created_issues, args.workspace)
-        
+
         logger.info("Drift check completed successfully")
     
     except Exception as e:
+        # Special-case: Ollama ResponseError may include a raw tool-call payload
+        # when the model returned malformed tool-call JSON. Attempt to recover
+        # by extracting the raw payload and running our safe parser.
+        msg = str(e)
+        m = re.search(r"raw='(.*?)',\s*err=", msg, flags=re.S)
+        if m:
+            raw_payload = m.group(1)
+            logger.warning("Detected malformed tool-call from model; attempting recovery using compare_resources_raw")
+            try:
+                # Call the safe wrapper to extract state/cloud and compute drift
+                if hasattr(compare_resources_raw, 'func'):
+                    out = compare_resources_raw.func(raw=raw_payload)
+                else:
+                    out = compare_resources_raw(raw_payload)
+                parsed_out = json.loads(out)
+                # Synthesize minimal JSON report for downstream automation
+                total = parsed_out.get('total_drifted', 0)
+                resources = parsed_out.get('drifted_resources', [])
+                json_data = {
+                    'drift_detected': total > 0,
+                    'summary': {
+                        'total_resources': len(parsed_out.get('drifted_resources', [])),
+                        'drifted': total,
+                        'compliant': 0,
+                        'severity_breakdown': {}
+                    },
+                    'resources': [
+                        {
+                            'id': r.get('resource_id'),
+                            'type': r.get('resource_type'),
+                            'name': r.get('resource_name'),
+                            'severity': r.get('severity'),
+                            'drift_type': r.get('drift_type'),
+                            'drift_details': r.get('changes'),
+                            'remediation_command': None,
+                        }
+                        for r in resources
+                    ]
+                }
+                print("\nRecovered drift summary (from malformed model output):")
+                print(json.dumps(json_data, indent=2))
+                # Create GitHub issues if enabled
+                github_enabled = os.getenv("GITHUB_ISSUE_ENABLED", "false").lower() == "true"
+                if json_data and json_data.get("drift_detected") and github_enabled:
+                    created_issues = create_github_issues(json_data, args.workspace)
+                    teams_enabled = os.getenv("TEAMS_NOTIFICATION_ENABLED", "false").lower() == "true"
+                    if teams_enabled and created_issues:
+                        send_teams_notifications(json_data, created_issues, args.workspace)
+                logger.info("Drift check completed with recovery path")
+                return
+            except Exception as rec_e:
+                logger.exception("Recovery attempt failed")
         logger.exception("Agent execution failed")
         print(f"❌ Error during drift analysis: {e}", file=sys.stderr)
         sys.exit(1)
@@ -538,6 +618,12 @@ def run_fix_mode(args):
         args: Parsed command-line arguments
     """
     logger.info(f"Starting remediation for resource: {args.resource}")
+    # Respect explicit DRY_RUN env var to disable network side-effects even if .env enables them
+    dry_run = os.getenv("DRY_RUN", "false").lower() == "true"
+    if dry_run:
+        logger.info("DRY_RUN=true: disabling GitHub and Teams side-effects for this run")
+        os.environ["GITHUB_ISSUE_ENABLED"] = "false"
+        os.environ["TEAMS_NOTIFICATION_ENABLED"] = "false"
     
     # Validate inputs
     try:
@@ -570,7 +656,7 @@ def run_fix_mode(args):
     
     # Create agent
     logger.info("Creating drift detection agent...")
-    agent = create_agent(retriever)
+    agent = create_agent(retriever, enforce_json=True)
     
     # Construct user prompt for single resource
     user_prompt = f"""Generate a remediation plan for resource {args.resource} in workspace '{args.workspace}'.
@@ -592,7 +678,7 @@ Provide a focused remediation plan with:
     try:
         result = agent.invoke(
             {"messages": [HumanMessage(content=user_prompt)]},
-            config={"recursion_limit": 15}
+            config={"recursion_limit": 50}
         )
         
         # Extract final answer

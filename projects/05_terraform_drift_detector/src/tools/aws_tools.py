@@ -77,40 +77,59 @@ def _fetch_ec2_instances(instance_ids: list[str], access_key: str,
                         secret_key: str, region: str) -> str:
     """Fetch EC2 instance details from AWS."""
     rate_limiter.acquire()
-    
-    ec2_client = boto3.client(
-        "ec2",
-        region_name=region,
-        aws_access_key_id=access_key,
-        aws_secret_access_key=secret_key,
-    )
-    
-    response = ec2_client.describe_instances(InstanceIds=instance_ids)
-    
+
+    # If many instance ids are provided, chunk and fetch in parallel to
+    # reduce latency and avoid very large single describe_instances calls.
+    def _describe_chunk(chunk):
+        client = boto3.client(
+            "ec2",
+            region_name=region,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+        )
+        return client.describe_instances(InstanceIds=chunk)
+
     instances = []
-    for reservation in response.get("Reservations", []):
-        for instance in reservation.get("Instances", []):
-            tags_dict = {tag["Key"]: tag["Value"] for tag in instance.get("Tags", [])}
-            attributes = {
-                "id": instance["InstanceId"],
-                "instance_type": instance.get("InstanceType"),
-                "ami": instance.get("ImageId"),
-                "availability_zone": instance.get("Placement", {}).get("AvailabilityZone"),
-                "vpc_security_group_ids": [sg["GroupId"] for sg in instance.get("SecurityGroups", [])],
-                "tags": tags_dict,
-                # Optionally add more fields as needed
-            }
-            instances.append({
-                "id": instance["InstanceId"],
-                "type": "aws_instance",
-                "name": instance.get("Tags", [{}])[0].get("Value", "") if instance.get("Tags") else "",
-                "tags": tags_dict,
-                "instance_type": instance.get("InstanceType"),
-                "ami": instance.get("ImageId"),
-                "availability_zone": instance.get("Placement", {}).get("AvailabilityZone"),
-                "vpc_security_group_ids": [sg["GroupId"] for sg in instance.get("SecurityGroups", [])],
-                "attributes": attributes
-            })
+    # AWS describe_instances supports multiple IDs; chunk into 50s for safety
+    chunk_size = 50
+    chunks = [instance_ids[i:i+chunk_size] for i in range(0, len(instance_ids), chunk_size)]
+    if len(chunks) == 1:
+        responses = [_describe_chunk(chunks[0])]
+    else:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        responses = []
+        with ThreadPoolExecutor(max_workers=min(8, len(chunks))) as ex:
+            futures = {ex.submit(_describe_chunk, ch): ch for ch in chunks}
+            for fut in as_completed(futures):
+                try:
+                    responses.append(fut.result())
+                except Exception:
+                    logger.exception("Failed to describe EC2 instances for chunk")
+
+    for response in responses:
+        for reservation in response.get("Reservations", []):
+            for instance in reservation.get("Instances", []):
+                tags_dict = {tag["Key"]: tag["Value"] for tag in instance.get("Tags", [])}
+                attributes = {
+                    "id": instance["InstanceId"],
+                    "instance_type": instance.get("InstanceType"),
+                    "ami": instance.get("ImageId"),
+                    "availability_zone": instance.get("Placement", {}).get("AvailabilityZone"),
+                    "vpc_security_group_ids": [sg["GroupId"] for sg in instance.get("SecurityGroups", [])],
+                    "tags": tags_dict,
+                }
+                instances.append({
+                    "id": instance["InstanceId"],
+                    "type": "aws_instance",
+                    "name": instance.get("Tags", [{}])[0].get("Value", "") if instance.get("Tags") else "",
+                    "tags": tags_dict,
+                    "instance_type": instance.get("InstanceType"),
+                    "ami": instance.get("ImageId"),
+                    "availability_zone": instance.get("Placement", {}).get("AvailabilityZone"),
+                    "vpc_security_group_ids": [sg["GroupId"] for sg in instance.get("SecurityGroups", [])],
+                    "attributes": attributes
+                })
     logger.info(f"Fetched {len(instances)} EC2 instances from AWS")
     result_json = json.dumps({
         "resource_type": "aws_instance",
@@ -125,28 +144,28 @@ def _fetch_ssm_parameters(parameter_names: list[str], access_key: str,
     """Fetch SSM parameter metadata from AWS."""
     rate_limiter.acquire()
 
-    ssm_client = boto3.client(
-        "ssm",
-        region_name=region,
-        aws_access_key_id=access_key,
-        aws_secret_access_key=secret_key,
-    )
+    # Parallelize per-parameter fetches since SSM get_parameter is per-name
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    parameters = []
-    for name in parameter_names:
+    def _fetch_one(name: str):
+        client = boto3.client(
+            "ssm",
+            region_name=region,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+        )
         try:
-            response = ssm_client.get_parameter(Name=name, WithDecryption=False)
+            response = client.get_parameter(Name=name, WithDecryption=False)
             parameter = response.get("Parameter", {})
-
             tags_dict = {}
             try:
-                tags_response = ssm_client.list_tags_for_resource(
+                tags_response = client.list_tags_for_resource(
                     ResourceType="Parameter",
                     ResourceId=name,
                 )
                 tags_dict = {tag["Key"]: tag["Value"] for tag in tags_response.get("Tags", [])}
-            except ClientError as e:
-                logger.warning(f"Unable to fetch tags for SSM parameter {name}: {e}")
+            except ClientError:
+                logger.warning(f"Unable to fetch tags for SSM parameter {name}")
 
             attributes = {
                 "id": parameter.get("Name"),
@@ -156,19 +175,29 @@ def _fetch_ssm_parameters(parameter_names: list[str], access_key: str,
                 "key_id": parameter.get("KeyId") if parameter.get("Type") == "SecureString" else None,
                 "tags": tags_dict,
             }
-            parameters.append({
+            return {
                 "id": parameter.get("Name"),
                 "type": "aws_ssm_parameter",
                 "name": parameter.get("Name"),
                 "tags": tags_dict,
                 "attributes": attributes
-            })
+            }
         except ClientError as e:
-            error_code = e.response["Error"]["Code"]
-            if error_code == "ParameterNotFound":
+            if e.response["Error"]["Code"] == "ParameterNotFound":
                 logger.warning(f"SSM parameter not found: {name}")
-            else:
-                raise
+                return None
+            raise
+
+    parameters = []
+    with ThreadPoolExecutor(max_workers=min(8, len(parameter_names))) as ex:
+        futures = {ex.submit(_fetch_one, name): name for name in parameter_names}
+        for fut in as_completed(futures):
+            try:
+                res = fut.result()
+                if res:
+                    parameters.append(res)
+            except Exception:
+                logger.exception("Error fetching SSM parameter")
 
     logger.info(f"Fetched {len(parameters)} SSM parameters from AWS")
     return json.dumps({
