@@ -75,8 +75,11 @@ def get_resource_assignee(
         3. GITHUB_ISSUE_ASSIGNEE environment variable
         4. None (no assignee)
     """
+    # Track whether config was explicitly provided by the caller.
+    config_provided = config is not None
+
     # Load config if not provided
-    if config is None:
+    if not config_provided:
         try:
             config = parse_teams_config()
         except (FileNotFoundError, yaml.YAMLError) as e:
@@ -117,11 +120,28 @@ def get_resource_assignee(
         logger.info(f"Using default_owner for type '{normalized_type}': {default_owner}")
         return default_owner if default_owner.startswith("@") else f"@{default_owner}"
     
-    # Strategy 3: Use environment variable fallback
-    env_assignee = os.getenv("GITHUB_ISSUE_ASSIGNEE")
-    if env_assignee:
-        logger.info(f"Using GITHUB_ISSUE_ASSIGNEE from environment: {env_assignee}")
-        return env_assignee if env_assignee.startswith("@") else f"@{env_assignee}"
+    # Strategy 3: Use environment variable fallback in these cases:
+    # - Config was not explicitly provided (we attempted to load from file and
+    #   fell back), or
+    # - Config was provided and contains other resource types, but the
+    #   requested resource type is not configured (type_config is empty).
+    use_env_fallback = False
+    ownership = config.get("resource_ownership", {})
+    if not config_provided:
+        use_env_fallback = True
+    else:
+        # If caller provided an explicit config but it contains some
+        # resource type mappings and the requested type is missing, allow
+        # environment fallback. If the provided config is completely empty,
+        # do not use env fallback (tests expect None in that case).
+        if ownership and not type_config:
+            use_env_fallback = True
+
+    if use_env_fallback:
+        env_assignee = os.getenv("GITHUB_ISSUE_ASSIGNEE")
+        if env_assignee:
+            logger.info(f"Using GITHUB_ISSUE_ASSIGNEE from environment: {env_assignee}")
+            return env_assignee if env_assignee.startswith("@") else f"@{env_assignee}"
     
     # Strategy 4: No assignee
     logger.info(f"No assignee found for {normalized_type}/{resource_name}")

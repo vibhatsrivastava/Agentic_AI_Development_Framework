@@ -1,6 +1,8 @@
 """Resource comparison and drift detection tools."""
 
 import json
+import re
+import ast
 from deepdiff import DeepDiff
 from langchain_core.tools import tool
 from common.utils import get_logger
@@ -113,17 +115,48 @@ class CompareResourcesArgs(BaseModel):
 
     @model_validator(mode="before")
     def normalize_payload(cls, values):
-        payload = values.get("payload")
-        state_resources = values.get("state_resources")
-        cloud_resources = values.get("cloud_resources")
+        # Support being called with a raw JSON string (truncated or not).
+        try:
+            # If values is a plain string, attempt to sanitize/parse it into a dict
+            if isinstance(values, str):
+                raw = values
+                # small sanitizer similar to ensure_resource_dict
+                def try_parse(s: str):
+                    try:
+                        return json.loads(s)
+                    except Exception:
+                        pass
+                    try:
+                        return ast.literal_eval(s)
+                    except Exception:
+                        pass
+                    return None
 
-        if payload is not None and isinstance(payload, dict):
-            if "state_resources" in payload and "cloud_resources" in payload:
-                if state_resources is None:
-                    values["state_resources"] = payload.get("state_resources")
-                if cloud_resources is None:
-                    values["cloud_resources"] = payload.get("cloud_resources")
-        return values
+                parsed = try_parse(raw)
+                if parsed is None:
+                    cleaned = re.sub(r'\.{2,}', '', raw)
+                    cleaned = re.sub(r',\s*(?=[}\]])', '', cleaned)
+                    parsed = try_parse(cleaned)
+                if isinstance(parsed, dict):
+                    values = parsed
+                else:
+                    # Return as-is so validation can proceed and function can handle errors
+                    return {"payload": values}
+
+            payload = values.get("payload")
+            state_resources = values.get("state_resources")
+            cloud_resources = values.get("cloud_resources")
+
+            if payload is not None and isinstance(payload, dict):
+                if "state_resources" in payload and "cloud_resources" in payload:
+                    if state_resources is None:
+                        values["state_resources"] = payload.get("state_resources")
+                    if cloud_resources is None:
+                        values["cloud_resources"] = payload.get("cloud_resources")
+            return values
+        except Exception:
+            # If anything goes wrong, return values unchanged to allow downstream handling
+            return values
 
 
 @tool(args_schema=CompareResourcesArgs)
@@ -149,6 +182,149 @@ def compare_resources(
         inner_payload = cloud_resources["input"]
         state_resources = inner_payload.get("state_resources")
         cloud_resources = inner_payload.get("cloud_resources")
+
+    # Debug: show incoming raw payload/state strings when present
+    try:
+        if isinstance(payload, str):
+            print(f"[DEBUG] incoming payload string (len={len(payload)}): {payload[:500]}")
+        if isinstance(state_resources, str):
+            print(f"[DEBUG] incoming state_resources string (len={len(state_resources)}): {state_resources[:500]}")
+    except Exception:
+        pass
+
+    # If payload or state_resources are raw strings that may contain both
+    # `state_resources` and `cloud_resources`, try a best-effort parse before
+    # enforcing that both are present. This helps when LLM/tool outputs are
+    # truncated or embedded as a raw JSON-like string.
+    def try_parse_payload_string(s: str):
+        def _try(s2: str):
+            try:
+                return json.loads(s2)
+            except Exception:
+                pass
+            try:
+                return ast.literal_eval(s2)
+            except Exception:
+                pass
+            return None
+
+        if not isinstance(s, str):
+            return None
+        parsed = _try(s)
+        if parsed is not None:
+            return parsed
+        cleaned = re.sub(r'\.{2,}', '', s)
+        cleaned = re.sub(r',\s*(?=[}\]])', '', cleaned)
+        parsed = _try(cleaned)
+        if parsed is not None:
+            return parsed
+        m_obj = re.search(r"(\{.*\})", cleaned, flags=re.S)
+        if m_obj:
+            snippet = m_obj.group(1)
+            parsed = _try(snippet)
+            if parsed is not None:
+                return parsed
+        m_arr = re.search(r"(\[.*\])", cleaned, flags=re.S)
+        if m_arr:
+            snippet = m_arr.group(1)
+            parsed = _try(snippet)
+            if parsed is not None:
+                return parsed
+        return None
+
+    def extract_json_field(s: str, field: str):
+        # Find the field name in the string and attempt to extract the following
+        # JSON object/array by scanning for matching braces. Returns parsed value
+        # or None.
+        if not isinstance(s, str):
+            return None
+        pat = re.compile(r'"' + re.escape(field) + r'"\s*:\s*')
+        m = pat.search(s)
+        if not m:
+            return None
+        idx = m.end()
+        # Skip whitespace
+        while idx < len(s) and s[idx].isspace():
+            idx += 1
+        if idx >= len(s):
+            return None
+        # Determine whether next token is object or array
+        if s[idx] not in ('{', '['):
+            return None
+        open_ch = s[idx]
+        close_ch = '}' if open_ch == '{' else ']'
+        depth = 0
+        end_idx = idx
+        for i in range(idx, len(s)):
+            ch = s[i]
+            if ch == open_ch:
+                depth += 1
+            elif ch == close_ch:
+                depth -= 1
+                if depth == 0:
+                    end_idx = i + 1
+                    break
+        snippet = s[idx:end_idx]
+        if not snippet:
+            return None
+        try:
+            return json.loads(snippet)
+        except Exception:
+            try:
+                return ast.literal_eval(snippet)
+            except Exception:
+                # Fallback: attempt cleaning and parse
+                cleaned = re.sub(r'\.{2,}', '', snippet)
+                cleaned = re.sub(r',\s*(?=[}\]])', '', cleaned)
+                try:
+                    return json.loads(cleaned)
+                except Exception:
+                    try:
+                        return ast.literal_eval(cleaned)
+                    except Exception:
+                        return None
+
+    # Try parsing payload string
+    if payload is not None and isinstance(payload, str):
+        # Try parsing the whole payload first
+        parsed_payload = try_parse_payload_string(payload)
+        if isinstance(parsed_payload, dict):
+            if state_resources is None and "state_resources" in parsed_payload:
+                state_resources = parsed_payload.get("state_resources")
+            if cloud_resources is None and "cloud_resources" in parsed_payload:
+                cloud_resources = parsed_payload.get("cloud_resources")
+        # If that failed, try extracting individual fields heuristically
+        if state_resources is None:
+            ext = extract_json_field(payload, "state_resources")
+            if ext is not None:
+                state_resources = ext
+        if cloud_resources is None:
+            ext = extract_json_field(payload, "cloud_resources")
+            if ext is not None:
+                cloud_resources = ext
+
+    # Also try parsing when state_resources itself is a raw string that may
+    # embed both fields
+    if state_resources is not None and isinstance(state_resources, str) and cloud_resources is None:
+        parsed_state = try_parse_payload_string(state_resources)
+        if isinstance(parsed_state, dict):
+            if "state_resources" in parsed_state and "cloud_resources" in parsed_state:
+                state_resources = parsed_state.get("state_resources")
+                cloud_resources = parsed_state.get("cloud_resources")
+            else:
+                # If parsed_state contains only one of the fields, pick it up
+                if "cloud_resources" in parsed_state and cloud_resources is None:
+                    cloud_resources = parsed_state.get("cloud_resources")
+                if "state_resources" in parsed_state:
+                    state_resources = parsed_state.get("state_resources")
+        # Heuristic extraction of embedded JSON fields
+        if cloud_resources is None:
+            ext = extract_json_field(state_resources, "cloud_resources")
+            if ext is not None:
+                cloud_resources = ext
+        ext_state = extract_json_field(state_resources, "state_resources")
+        if ext_state is not None:
+            state_resources = ext_state
 
     # Strict input validation and debug print
     print(f"[DEBUG] compare_resources received state_resources type: {type(state_resources)}, cloud_resources type: {type(cloud_resources)}")
@@ -187,6 +363,7 @@ def compare_resources(
         if isinstance(val, list):
             return {'resources': val}
         if isinstance(val, str):
+<<<<<<< Updated upstream
             # Try to parse directly. If parsing fails, attempt lightweight sanitization
             try:
                 parsed = json.loads(val)
@@ -203,6 +380,53 @@ def compare_resources(
                 except Exception as e2:
                     logger.error(f"[ERROR] Failed to parse input as JSON. Exception: {e}\nSanitized exception: {e2}\nRaw value: {val}")
                     return {'error': f'Invalid JSON input: {e}', 'raw': val}
+=======
+            # Try multiple strategies to handle truncated / malformed JSON often
+            # produced by LLM/tool output (ellipses, trailing commas, partial output)
+            def try_parse(s: str):
+                try:
+                    return json.loads(s)
+                except Exception:
+                    pass
+                try:
+                    # Sometimes the tool returns a Python-like literal
+                    return ast.literal_eval(s)
+                except Exception:
+                    pass
+                return None
+
+            parsed = try_parse(val)
+            if parsed is not None:
+                return ensure_resource_dict(parsed)
+
+            # Clean common truncation patterns: remove ellipses and stray trailing commas
+            cleaned = re.sub(r'\.{2,}', '', val)
+            cleaned = re.sub(r',\s*(?=[}\]])', '', cleaned)
+            parsed = try_parse(cleaned)
+            if parsed is not None:
+                logger.warning("[WARN] Parsed input after cleaning truncated JSON/ellipses")
+                return ensure_resource_dict(parsed)
+
+            # As a last resort, try to extract the first {...} or [...] substring
+            m_obj = re.search(r"(\{.*\})", cleaned, flags=re.S)
+            if m_obj:
+                snippet = m_obj.group(1)
+                parsed = try_parse(snippet)
+                if parsed is not None:
+                    logger.warning("[WARN] Parsed JSON from extracted object snippet")
+                    return ensure_resource_dict(parsed)
+
+            m_arr = re.search(r"(\[.*\])", cleaned, flags=re.S)
+            if m_arr:
+                snippet = m_arr.group(1)
+                parsed = try_parse(snippet)
+                if parsed is not None:
+                    logger.warning("[WARN] Parsed JSON from extracted array snippet")
+                    return ensure_resource_dict(parsed)
+
+            logger.error(f"[ERROR] Failed to parse input as JSON after sanitization. Raw value length={len(val)}")
+            return {'error': 'Invalid JSON input: parsing failed after sanitization', 'raw_length': len(val)}
+>>>>>>> Stashed changes
         return {'resources': []}
 
     # Always wrap arrays as dicts with 'resources' key for both state and cloud
