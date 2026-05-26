@@ -21,8 +21,8 @@ def parse_terraform_state(file_path: str) -> str:
     Returns:
         JSON string with resource list: {"total_resources": int, "resources": [...]}
     """
-    # Validate file path
-    if not re.match(r"^[a-zA-Z0-9/_.-]+\.tfstate$", file_path):
+    # Validate file path: accept any path that ends with .tfstate (platform-agnostic)
+    if not isinstance(file_path, str) or not file_path.lower().endswith(".tfstate"):
         return json.dumps({"error": "Invalid state file path: must end with .tfstate"})
     
     file_path_obj = Path(file_path)

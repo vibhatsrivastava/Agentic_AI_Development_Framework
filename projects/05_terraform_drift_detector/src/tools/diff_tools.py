@@ -187,12 +187,22 @@ def compare_resources(
         if isinstance(val, list):
             return {'resources': val}
         if isinstance(val, str):
+            # Try to parse directly. If parsing fails, attempt lightweight sanitization
             try:
                 parsed = json.loads(val)
                 return ensure_resource_dict(parsed)
             except Exception as e:
-                logger.error(f"[ERROR] Failed to parse input as JSON. Exception: {e}\nRaw value: {val}")
-                return {'error': f'Invalid JSON input: {e}', 'raw': val}
+                import re
+                # Remove common truncation artifacts like ellipses and stray commas
+                sanitized = re.sub(r"\.{3,}", "", val)
+                sanitized = sanitized.replace(',}', '}').replace(',]', ']')
+                try:
+                    parsed = json.loads(sanitized)
+                    logger.warning("[WARN] Input JSON contained truncation artifacts; used sanitized version for parsing.")
+                    return ensure_resource_dict(parsed)
+                except Exception as e2:
+                    logger.error(f"[ERROR] Failed to parse input as JSON. Exception: {e}\nSanitized exception: {e2}\nRaw value: {val}")
+                    return {'error': f'Invalid JSON input: {e}', 'raw': val}
         return {'resources': []}
 
     # Always wrap arrays as dicts with 'resources' key for both state and cloud
