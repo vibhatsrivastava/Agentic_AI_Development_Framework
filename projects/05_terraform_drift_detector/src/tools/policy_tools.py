@@ -2,6 +2,7 @@
 
 import json
 import hashlib
+from typing import Any
 from langchain_core.tools import tool
 from langchain_core.retrievers import BaseRetriever
 from langchain_core.messages import HumanMessage
@@ -35,7 +36,7 @@ def create_policy_analysis_tool(retriever: BaseRetriever):
     """
     
     @tool
-    def analyze_drift_with_policies(drift_summary: str) -> str:
+    def analyze_drift_with_policies(drift_summary: Any) -> str:
         """
         Analyze detected drift against organizational policies using RAG.
         
@@ -47,15 +48,23 @@ def create_policy_analysis_tool(retriever: BaseRetriever):
         - Remediation recommendations
         
         Args:
-            drift_summary: JSON string from compare_resources tool
+            drift_summary: Drift summary from compare_resources tool.
+                Accepts either a JSON string or a dictionary.
         
         Returns:
             JSON string with enriched drift analysis including policy violations
         """
-        try:
-            drift_data = json.loads(drift_summary)
-        except json.JSONDecodeError as e:
-            return json.dumps({"error": f"Invalid JSON input: {str(e)}"})
+        if isinstance(drift_summary, dict):
+            drift_data = drift_summary
+        elif isinstance(drift_summary, str):
+            try:
+                drift_data = json.loads(drift_summary)
+            except json.JSONDecodeError as e:
+                return json.dumps({"error": f"Invalid JSON input: {str(e)}"})
+        else:
+            return json.dumps({
+                "error": "Invalid drift_summary input type. Expected JSON string or dictionary."
+            })
         
         if "error" in drift_data:
             return json.dumps({"error": f"Drift comparison error: {drift_data['error']}"})

@@ -143,6 +143,51 @@ def test_run_check_mode_state_file_not_found(capsys):
     assert excinfo.value.code == 1
 
 
+def test_run_check_mode_recovers_from_malformed_tool_call(
+    mock_vector_store,
+    sample_state_file,
+    mocker,
+    capsys,
+):
+    """Test deterministic recovery when the model emits malformed tool-call JSON."""
+    args = Mock()
+    args.workspace = "prod"
+    args.state_file = str(sample_state_file)
+    args.vector_store_dir = "./vector_store"
+    args.rebuild_vector_store = False
+
+    mocker.patch("main.initialize_vector_store", return_value=mock_vector_store)
+    mocker.patch("main.get_retriever", return_value=Mock())
+    mocker.patch(
+        "main._recover_drift_from_state_file",
+        return_value={
+            "total_drifted": 1,
+            "drifted_resources": [
+                {
+                    "resource_id": "i-abc123",
+                    "resource_type": "aws_instance",
+                    "resource_name": "web-prod-01",
+                    "severity": "critical",
+                    "drift_type": "attributes_changed",
+                    "changes": {"instance_type": {"old": "t2.micro", "new": "t3.micro"}},
+                }
+            ],
+        },
+    )
+
+    mock_agent = Mock()
+    mock_agent.invoke.side_effect = RuntimeError(
+        "error parsing tool call: raw='{\"state_resources\":[],\"cloud_resources\":[]}', err=boom (status code: 500)"
+    )
+    mocker.patch("main.create_agent", return_value=mock_agent)
+
+    run_check_mode(args)
+
+    captured = capsys.readouterr()
+    assert "Recovered drift summary" in captured.out
+    assert "i-abc123" in captured.out
+
+
 def test_run_fix_mode_success(
     mock_chat_llm,
     mock_vector_store,

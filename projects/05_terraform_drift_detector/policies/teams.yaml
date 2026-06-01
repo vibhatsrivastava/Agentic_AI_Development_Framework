@@ -5,52 +5,66 @@
 resource_ownership:
   # EC2 Instances
   ec2:
-    default_owner: "@infrastructure-team"
+    # default_owner: "@infrastructure-team"
+    default_owner: "@vibhatsrivastava"
     patterns:
       - pattern: "web-.*"
-        owner: "@web-team"
+        # owner: "@web-team"
+        owner: "@vibhatsrivastava"
         description: "Web servers"
       - pattern: "db-.*"
-        owner: "@database-team"
+        # owner: "@database-team"
+        owner: "@vibhatsrivastava"
         description: "Database instances"
       - pattern: ".*-prod-.*"
-        owner: "@production-team"
+        # owner: "@production-team"
+        owner: "@vibhatsrivastava"
         description: "Production instances (fallback pattern)"
   
   # RDS Databases
   rds:
-    default_owner: "@database-team"
+    # default_owner: "@database-team"
+    default_owner: "@vibhatsrivastava"
     patterns:
       - pattern: "postgres-.*"
-        owner: "@database-team"
+        # owner: "@database-team"
+        owner: "@vibhatsrivastava"
         description: "PostgreSQL databases"
       - pattern: "mysql-.*"
-        owner: "@database-team"
+        # owner: "@database-team"
+        owner: "@vibhatsrivastava"
         description: "MySQL databases"
   
   # S3 Buckets
   s3:
-    default_owner: "@data-team"
+    # default_owner: "@data-team"
+    default_owner: "@vibhatsrivastava"
     patterns:
       - pattern: "logs-.*"
-        owner: "@platform-team"
+        # owner: "@platform-team"
+        owner: "@vibhatsrivastava"
         description: "Log storage buckets"
       - pattern: "backup-.*"
-        owner: "@infrastructure-team"
+        # owner: "@infrastructure-team"
+        owner: "@vibhatsrivastava"
         description: "Backup buckets"
       - pattern: ".*-analytics.*"
-        owner: "@analytics-team"
+        # owner: "@analytics-team"
+        owner: "@vibhatsrivastava"
         description: "Analytics data buckets"
   
   # Security Groups
   security_group:
-    default_owner: "@security-team"
+    # default_owner: "@security-team"
+    default_owner: "@vibhatsrivastava"
     patterns:
       - pattern: "web-.*"
-        owner: "@web-team"
+        # owner: "@web-team"
+        owner: "@vibhatsrivastava"
         description: "Web security groups"
       - pattern: "db-.*"
-        owner: "@database-team"
+        # owner: "@database-team"
+        owner: "@vibhatsrivastava"
         description: "Database security groups"
 
 # Fallback Configuration

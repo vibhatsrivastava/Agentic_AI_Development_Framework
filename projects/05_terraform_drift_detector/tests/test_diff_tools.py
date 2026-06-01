@@ -1,7 +1,7 @@
 """Tests for resource comparison and drift detection tools."""
 
 import json
-from tools.diff_tools import compare_resources
+from tools.diff_tools import compare_resources, compare_resources_raw
 
 
 def test_compare_resources_no_drift():
@@ -226,6 +226,50 @@ def test_compare_resources_nested_input_wrapper():
 
     assert result["total_drifted"] == 0
     assert len(result["drifted_resources"]) == 0
+
+
+def test_compare_resources_accepts_native_objects():
+    """Test native dict payloads so the agent can pass parsed tool outputs directly."""
+    result_json = compare_resources.invoke({
+        "state_resources": {
+            "resources": [
+                {
+                    "type": "aws_instance",
+                    "name": "web-prod-01",
+                    "id": "i-abc123",
+                    "tags": {"Environment": "prod"},
+                    "attributes": {"instance_type": "t3.medium"},
+                }
+            ]
+        },
+        "cloud_resources": {
+            "resource_type": "aws_instance",
+            "resources": [
+                {
+                    "type": "aws_instance",
+                    "name": "web-prod-01",
+                    "id": "i-abc123",
+                    "tags": {"Environment": "prod"},
+                    "attributes": {"instance_type": "t3.medium"},
+                }
+            ]
+        },
+    })
+    result = json.loads(result_json)
+
+    assert result["total_drifted"] == 0
+    assert result["drifted_resources"] == []
+
+
+def test_compare_resources_raw_recovers_quoted_json_fields():
+    """Test recovery from malformed tool-call JSON containing quoted nested JSON blobs."""
+    raw_payload = '{"cloud_resources":"{"resource_type":"aws_instance","resources":[{"id":"i-abc123","type":"aws_instance","name":"web-prod-01","tags":{"Environment":"prod"},"attributes":{"instance_type":"t3.medium"}}]}","state_resources":"{"resources":[{"type":"aws_instance","name":"web-prod-01","id":"i-abc123","tags":{"Environment":"prod"},"attributes":{"instance_type":"t3.medium"}}]}"}'
+
+    result_json = compare_resources_raw.func(raw=raw_payload)
+    result = json.loads(result_json)
+
+    assert result["total_drifted"] == 0
+    assert result["drifted_resources"] == []
 
 
 def test_compare_resources_skip_unsupported_state_type():

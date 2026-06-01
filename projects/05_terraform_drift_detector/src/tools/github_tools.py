@@ -2,10 +2,62 @@
 
 import json
 import requests
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Set
 from common.utils import get_logger, require_env
 
 logger = get_logger(__name__)
+
+
+def _get_existing_repo_labels(owner: str, repo: str, headers: Dict[str, str]) -> Set[str]:
+    """Best-effort fetch of existing repository labels for payload validation."""
+    try:
+        resp = requests.get(
+            f"https://api.github.com/repos/{owner}/{repo}/labels",
+            headers=headers,
+            params={"per_page": 100},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        labels = resp.json()
+        if isinstance(labels, list):
+            return {label.get("name") for label in labels if isinstance(label, dict) and label.get("name")}
+    except Exception as e:
+        logger.warning(f"Could not fetch repo labels for validation: {e}")
+    return set()
+
+
+def _filter_valid_assignees(
+    owner: str,
+    repo: str,
+    assignees: Optional[List[str]],
+    headers: Dict[str, str],
+) -> List[str]:
+    """Keep only assignees that are assignable for the target repository."""
+    if not assignees:
+        return []
+
+    valid_assignees: List[str] = []
+    for raw in assignees:
+        username = raw.lstrip("@")
+        if not username:
+            continue
+
+        try:
+            resp = requests.get(
+                f"https://api.github.com/repos/{owner}/{repo}/assignees/{username}",
+                headers=headers,
+                timeout=10,
+            )
+            if resp.status_code == 204:
+                valid_assignees.append(username)
+            else:
+                logger.warning(
+                    f"Skipping invalid assignee '{raw}' for {owner}/{repo} (status={resp.status_code})"
+                )
+        except Exception as e:
+            logger.warning(f"Assignee validation failed for '{raw}': {e}. Skipping assignee.")
+
+    return valid_assignees
 
 
 def get_github_headers(token: Optional[str] = None) -> Dict[str, str]:
@@ -55,10 +107,19 @@ def create_github_issue(
     """
     try:
         headers = get_github_headers(token)
-        
-        # Remove @ prefix from assignees if present
-        if assignees:
-            assignees = [a.lstrip("@") for a in assignees]
+
+        # Validate labels against repository labels to avoid 422 on unknown labels.
+        if labels:
+            existing_labels = _get_existing_repo_labels(owner, repo, headers)
+            if existing_labels:
+                filtered_labels = [label for label in labels if label in existing_labels]
+                dropped_labels = [label for label in labels if label not in existing_labels]
+                for dropped in dropped_labels:
+                    logger.warning(f"Skipping unknown label '{dropped}' for {owner}/{repo}")
+                labels = filtered_labels
+
+        # Validate assignees against GitHub assignability for this repository.
+        assignees = _filter_valid_assignees(owner, repo, assignees, headers)
         
         payload = {
             "title": title,

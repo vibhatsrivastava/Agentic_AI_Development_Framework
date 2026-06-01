@@ -6,9 +6,101 @@ import ast
 from deepdiff import DeepDiff
 from langchain_core.tools import tool
 from common.utils import get_logger
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 logger = get_logger(__name__)
+
+
+def _try_parse_json_like(value: str):
+    try:
+        return json.loads(value)
+    except Exception:
+        pass
+    try:
+        return ast.literal_eval(value)
+    except Exception:
+        pass
+    return None
+
+
+def _extract_json_like_field(raw: str, field: str):
+    """Extract a JSON object/array or a quoted JSON string for a named field."""
+    if not isinstance(raw, str):
+        return None
+
+    match = re.search(r'"' + re.escape(field) + r'"\s*:\s*', raw)
+    if not match:
+        return None
+
+    idx = match.end()
+    while idx < len(raw) and raw[idx].isspace():
+        idx += 1
+    if idx >= len(raw):
+        return None
+
+    def extract_balanced(start_idx: int):
+        open_ch = raw[start_idx]
+        close_ch = '}' if open_ch == '{' else ']'
+        depth = 0
+        in_string = False
+        escaped = False
+
+        for pos in range(start_idx, len(raw)):
+            ch = raw[pos]
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif ch == '\\':
+                    escaped = True
+                elif ch == '"':
+                    in_string = False
+                continue
+
+            if ch == '"':
+                in_string = True
+            elif ch == open_ch:
+                depth += 1
+            elif ch == close_ch:
+                depth -= 1
+                if depth == 0:
+                    return raw[start_idx:pos + 1]
+        return None
+
+    if raw[idx] in ('{', '['):
+        snippet = extract_balanced(idx)
+        if not snippet:
+            return None
+        parsed = _try_parse_json_like(snippet)
+        if parsed is not None:
+            return parsed
+        cleaned = re.sub(r'\.{2,}', '', snippet)
+        cleaned = re.sub(r',\s*(?=[}\]])', '', cleaned)
+        return _try_parse_json_like(cleaned)
+
+    if raw[idx] == '"':
+        end_idx = idx + 1
+        escaped = False
+        while end_idx < len(raw):
+            ch = raw[end_idx]
+            if escaped:
+                escaped = False
+            elif ch == '\\':
+                escaped = True
+            elif ch == '"':
+                break
+            end_idx += 1
+
+        quoted = raw[idx:end_idx + 1]
+        inner = _try_parse_json_like(quoted)
+        if isinstance(inner, str):
+            parsed = _try_parse_json_like(inner)
+            if parsed is not None:
+                return parsed
+            cleaned = re.sub(r'\.{2,}', '', inner)
+            cleaned = re.sub(r',\s*(?=[}\]])', '', cleaned)
+            return _try_parse_json_like(cleaned)
+
+    return None
 
 def _compare_resources_impl(state_data: dict, cloud_data: dict) -> dict:
     """
@@ -109,9 +201,18 @@ def _compare_resources_impl(state_data: dict, cloud_data: dict) -> dict:
 
 
 class CompareResourcesArgs(BaseModel):
-    state_resources: str | dict | list | None = None
-    cloud_resources: str | dict | list | None = None
-    payload: str | dict | None = None
+    state_resources: dict | list | str | None = Field(
+        default=None,
+        description="Terraform state output. Prefer passing the parsed JSON object or array directly; do not wrap JSON in a quoted string.",
+    )
+    cloud_resources: dict | list | str | None = Field(
+        default=None,
+        description="Cloud resource output. Prefer passing the parsed JSON object or array directly; do not wrap JSON in a quoted string.",
+    )
+    payload: dict | str | None = Field(
+        default=None,
+        description="Optional wrapper containing both state_resources and cloud_resources. Prefer a native object instead of a stringified JSON blob.",
+    )
 
     @model_validator(mode="before")
     def normalize_payload(cls, values):
@@ -161,12 +262,15 @@ class CompareResourcesArgs(BaseModel):
 
 @tool(args_schema=CompareResourcesArgs)
 def compare_resources(
-    state_resources: str | dict | list | None = None,
-    cloud_resources: str | dict | list | None = None,
-    payload: str | dict | None = None,
+    state_resources: dict | list | str | None = None,
+    cloud_resources: dict | list | str | None = None,
+    payload: dict | str | None = None,
 ) -> str:
     """
-    Accepts state_resources and cloud_resources, each as a JSON string, dict, or list.
+    Compare Terraform state and cloud resources.
+
+    Prefer passing parsed JSON objects or arrays directly. String inputs are only
+    for compatibility with prior tool outputs and recovery flows.
     """
     if payload is not None and isinstance(payload, dict):
         if state_resources is None and cloud_resources is None:
@@ -232,58 +336,6 @@ def compare_resources(
                 return parsed
         return None
 
-    def extract_json_field(s: str, field: str):
-        # Find the field name in the string and attempt to extract the following
-        # JSON object/array by scanning for matching braces. Returns parsed value
-        # or None.
-        if not isinstance(s, str):
-            return None
-        pat = re.compile(r'"' + re.escape(field) + r'"\s*:\s*')
-        m = pat.search(s)
-        if not m:
-            return None
-        idx = m.end()
-        # Skip whitespace
-        while idx < len(s) and s[idx].isspace():
-            idx += 1
-        if idx >= len(s):
-            return None
-        # Determine whether next token is object or array
-        if s[idx] not in ('{', '['):
-            return None
-        open_ch = s[idx]
-        close_ch = '}' if open_ch == '{' else ']'
-        depth = 0
-        end_idx = idx
-        for i in range(idx, len(s)):
-            ch = s[i]
-            if ch == open_ch:
-                depth += 1
-            elif ch == close_ch:
-                depth -= 1
-                if depth == 0:
-                    end_idx = i + 1
-                    break
-        snippet = s[idx:end_idx]
-        if not snippet:
-            return None
-        try:
-            return json.loads(snippet)
-        except Exception:
-            try:
-                return ast.literal_eval(snippet)
-            except Exception:
-                # Fallback: attempt cleaning and parse
-                cleaned = re.sub(r'\.{2,}', '', snippet)
-                cleaned = re.sub(r',\s*(?=[}\]])', '', cleaned)
-                try:
-                    return json.loads(cleaned)
-                except Exception:
-                    try:
-                        return ast.literal_eval(cleaned)
-                    except Exception:
-                        return None
-
     # Try parsing payload string
     if payload is not None and isinstance(payload, str):
         # Try parsing the whole payload first
@@ -295,11 +347,11 @@ def compare_resources(
                 cloud_resources = parsed_payload.get("cloud_resources")
         # If that failed, try extracting individual fields heuristically
         if state_resources is None:
-            ext = extract_json_field(payload, "state_resources")
+            ext = _extract_json_like_field(payload, "state_resources")
             if ext is not None:
                 state_resources = ext
         if cloud_resources is None:
-            ext = extract_json_field(payload, "cloud_resources")
+            ext = _extract_json_like_field(payload, "cloud_resources")
             if ext is not None:
                 cloud_resources = ext
 
@@ -318,13 +370,14 @@ def compare_resources(
                 if "state_resources" in parsed_state:
                     state_resources = parsed_state.get("state_resources")
         # Heuristic extraction of embedded JSON fields
-        if cloud_resources is None:
-            ext = extract_json_field(state_resources, "cloud_resources")
+        if cloud_resources is None and isinstance(state_resources, str):
+            ext = _extract_json_like_field(state_resources, "cloud_resources")
             if ext is not None:
                 cloud_resources = ext
-        ext_state = extract_json_field(state_resources, "state_resources")
-        if ext_state is not None:
-            state_resources = ext_state
+        if isinstance(state_resources, str):
+            ext_state = _extract_json_like_field(state_resources, "state_resources")
+            if ext_state is not None:
+                state_resources = ext_state
 
     # Strict input validation and debug print
     print(f"[DEBUG] compare_resources received state_resources type: {type(state_resources)}, cloud_resources type: {type(cloud_resources)}")
@@ -422,6 +475,8 @@ def compare_resources(
     def sanitize_resources_dict(d: dict) -> dict:
         if not isinstance(d, dict):
             return {'resources': []}
+        if 'error' in d:
+            return {k: v for k, v in d.items() if k in {'error', 'resource_type', 'raw_length'}}
         res_list = d.get('resources') or []
         sanitized = []
         for item in res_list:
@@ -430,14 +485,14 @@ def compare_resources(
                 item = list(item)
             # If item is a string, try to parse into dict
             if isinstance(item, str):
-                parsed = try_parse(item)
+                parsed = _try_parse_json_like(item)
                 if isinstance(parsed, dict):
                     item = parsed
                 else:
                     # Try to extract an object/array snippet
                     m_obj = re.search(r"(\{.*\})", item, flags=re.S)
                     if m_obj:
-                        parsed = try_parse(m_obj.group(1))
+                        parsed = _try_parse_json_like(m_obj.group(1))
                         if isinstance(parsed, dict):
                             item = parsed
                         else:
@@ -496,43 +551,10 @@ def compare_resources_raw(raw: str) -> str:
         cloud = parsed.get('cloud_resources') or parsed.get('cloud')
 
     # Fallback: extract JSON fields by name
-    def extract_field(s: str, field: str):
-        pat = re.compile(r'"' + re.escape(field) + r'"\s*:\s*')
-        m = pat.search(s)
-        if not m:
-            return None
-        idx = m.end()
-        while idx < len(s) and s[idx].isspace():
-            idx += 1
-        if idx >= len(s) or s[idx] not in ('{', '['):
-            return None
-        open_ch = s[idx]
-        close_ch = '}' if open_ch == '{' else ']'
-        depth = 0
-        end_idx = idx
-        for i in range(idx, len(s)):
-            ch = s[i]
-            if ch == open_ch:
-                depth += 1
-            elif ch == close_ch:
-                depth -= 1
-                if depth == 0:
-                    end_idx = i + 1
-                    break
-        snippet = s[idx:end_idx]
-        if not snippet:
-            return None
-        parsed_snip = try_parse(snippet)
-        if parsed_snip is not None:
-            return parsed_snip
-        cleaned = re.sub(r'\.{2,}', '', snippet)
-        cleaned = re.sub(r',\s*(?=[}\]])', '', cleaned)
-        return try_parse(cleaned)
-
     if state is None:
-        state = extract_field(raw, 'state_resources') or extract_field(raw, 'state')
+        state = _extract_json_like_field(raw, 'state_resources') or _extract_json_like_field(raw, 'state')
     if cloud is None:
-        cloud = extract_field(raw, 'cloud_resources') or extract_field(raw, 'cloud_resources')
+        cloud = _extract_json_like_field(raw, 'cloud_resources') or _extract_json_like_field(raw, 'cloud')
 
     if state is None or cloud is None:
         # Try to find arrays anywhere and assume first array is state or cloud heuristically
@@ -569,6 +591,8 @@ def compare_resources_raw(raw: str) -> str:
     def sanitize_resources_dict(d: dict) -> dict:
         if not isinstance(d, dict):
             return {'resources': []}
+        if 'error' in d:
+            return {k: v for k, v in d.items() if k in {'error', 'resource_type', 'raw_length'}}
         res_list = d.get('resources') or []
         sanitized = []
         for item in res_list:

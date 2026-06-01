@@ -31,8 +31,9 @@ def test_get_github_headers():
     assert headers["Content-Type"] == "application/json"
 
 
+@patch("src.tools.github_tools.requests.get")
 @patch("src.tools.github_tools.requests.post")
-def test_create_github_issue_success(mock_post, mock_env_vars):
+def test_create_github_issue_success(mock_post, mock_get, mock_env_vars):
     """Test successful GitHub issue creation."""
     # Mock successful API response
     mock_response = Mock()
@@ -44,6 +45,16 @@ def test_create_github_issue_success(mock_post, mock_env_vars):
     }
     mock_post.return_value = mock_response
     
+    # Mock label lookup + assignee validation
+    labels_response = Mock()
+    labels_response.status_code = 200
+    labels_response.json.return_value = [{"name": "bug"}, {"name": "high-priority"}]
+
+    assignee_response = Mock()
+    assignee_response.status_code = 204
+
+    mock_get.side_effect = [labels_response, assignee_response]
+
     # Call function
     result = create_github_issue(
         owner="test-owner",
@@ -67,10 +78,82 @@ def test_create_github_issue_success(mock_post, mock_env_vars):
     assert call_args[0][0] == "https://api.github.com/repos/test-owner/test-repo/issues"
     assert call_args[1]["json"]["title"] == "Test Issue"
     assert call_args[1]["json"]["labels"] == ["bug", "high-priority"]
+    assert call_args[1]["json"]["assignees"] == ["user1"]
 
 
+@patch("src.tools.github_tools.requests.get")
 @patch("src.tools.github_tools.requests.post")
-def test_create_github_issue_failure(mock_post, mock_env_vars):
+def test_create_github_issue_invalid_assignee_dropped(mock_post, mock_get, mock_env_vars):
+    """Invalid assignees should be dropped to avoid GitHub 422 errors."""
+    labels_response = Mock()
+    labels_response.status_code = 200
+    labels_response.json.return_value = [{"name": "bug"}]
+
+    invalid_assignee_response = Mock()
+    invalid_assignee_response.status_code = 404
+
+    mock_get.side_effect = [labels_response, invalid_assignee_response]
+
+    mock_response = Mock()
+    mock_response.status_code = 201
+    mock_response.json.return_value = {
+        "number": 43,
+        "html_url": "https://github.com/test-owner/test-repo/issues/43",
+    }
+    mock_post.return_value = mock_response
+
+    result = create_github_issue(
+        owner="test-owner",
+        repo="test-repo",
+        title="Test Issue",
+        body="Test body",
+        labels=["bug"],
+        assignees=["@infrastructure-team"],
+        token="test_token",
+    )
+
+    result_data = json.loads(result)
+    assert result_data["success"] is True
+
+    payload = mock_post.call_args[1]["json"]
+    assert "assignees" not in payload
+
+
+@patch("src.tools.github_tools.requests.get")
+@patch("src.tools.github_tools.requests.post")
+def test_create_github_issue_unknown_labels_dropped(mock_post, mock_get, mock_env_vars):
+    """Unknown labels should be filtered out before issue creation."""
+    labels_response = Mock()
+    labels_response.status_code = 200
+    labels_response.json.return_value = [{"name": "bug"}]
+    mock_get.side_effect = [labels_response]
+
+    mock_response = Mock()
+    mock_response.status_code = 201
+    mock_response.json.return_value = {
+        "number": 44,
+        "html_url": "https://github.com/test-owner/test-repo/issues/44",
+    }
+    mock_post.return_value = mock_response
+
+    result = create_github_issue(
+        owner="test-owner",
+        repo="test-repo",
+        title="Test Issue",
+        body="Test body",
+        labels=["bug", "workspace-unknown"],
+        assignees=None,
+        token="test_token",
+    )
+
+    result_data = json.loads(result)
+    assert result_data["success"] is True
+    assert mock_post.call_args[1]["json"]["labels"] == ["bug"]
+
+
+@patch("src.tools.github_tools.requests.get")
+@patch("src.tools.github_tools.requests.post")
+def test_create_github_issue_failure(mock_post, mock_get, mock_env_vars):
     """Test GitHub issue creation failure."""
     # Mock failed API response
     mock_response = Mock()
@@ -78,6 +161,12 @@ def test_create_github_issue_failure(mock_post, mock_env_vars):
     mock_response.raise_for_status.side_effect = Exception("API Error: Forbidden")
     mock_post.return_value = mock_response
     
+    # Labels lookup fails closed (no labels filtering), then issue POST fails.
+    labels_response = Mock()
+    labels_response.status_code = 500
+    labels_response.raise_for_status.side_effect = Exception("labels error")
+    mock_get.side_effect = [labels_response]
+
     # Call function
     result = create_github_issue(
         owner="test-owner",

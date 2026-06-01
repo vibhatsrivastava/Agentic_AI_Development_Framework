@@ -50,6 +50,35 @@ def test_analyze_drift_with_policies_no_drift(mock_chat_llm):
     assert "No drift detected" in result["analysis"]
 
 
+def test_analyze_drift_with_policies_accepts_dict_input(mock_chat_llm):
+    """Test policy analysis accepts dictionary input from tool chain."""
+    mock_retriever = Mock()
+    mock_retriever.get_relevant_documents.return_value = [
+        Mock(page_content="Environment tag required", metadata={"source": "policies/tags.yaml"})
+    ]
+
+    drift_summary_dict = {
+        "total_drifted": 1,
+        "drifted_resources": [
+            {
+                "resource_id": "i-01e35bc38d1f134c2",
+                "resource_type": "aws_instance",
+                "resource_name": "drift_test",
+                "drift_type": "tags_modified",
+                "severity": "critical",
+                "changes": {"removed_tags": ["Environment"]},
+            }
+        ],
+    }
+
+    analyze_tool = create_policy_analysis_tool(mock_retriever)
+    result_json = analyze_tool.invoke({"drift_summary": drift_summary_dict})
+    result = json.loads(result_json)
+
+    assert "error" not in result
+    assert result["total_analyzed"] == 1
+
+
 def test_analyze_drift_with_policies_invalid_json():
     """Test handling of invalid JSON input."""
     mock_retriever = Mock()
