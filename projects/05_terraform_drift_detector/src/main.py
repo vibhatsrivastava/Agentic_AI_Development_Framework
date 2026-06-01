@@ -46,12 +46,18 @@ load_project_env()
 logger = get_logger(__name__)
 
 # Langfuse tracing imports (after logger initialization)
+# langfuse 4.x ships observe/langfuse_context at the top-level package.
+# Older 2.x/3.x shipped them under langfuse.decorators — try both.
+LANGFUSE_AVAILABLE = False
 try:
-    from langfuse.decorators import observe, langfuse_context
+    from langfuse import observe, langfuse_context
     LANGFUSE_AVAILABLE = True
 except ImportError:
-    LANGFUSE_AVAILABLE = False
-    logger.warning("Langfuse not available - tracing disabled")
+    try:
+        from langfuse.decorators import observe, langfuse_context
+        LANGFUSE_AVAILABLE = True
+    except ImportError:
+        logger.info("Langfuse decorators unavailable — trace context tagging disabled (callback handler still active via llm_factory)")
 
 
 SYSTEM_PROMPT = """Terraform drift analysis assistant detecting infrastructure drift between Terraform state and live AWS resources.
@@ -471,10 +477,12 @@ def create_agent(retriever, enforce_json: bool = False):
 def run_check_mode(args):
     """
     Run drift detection in check mode (full workspace scan).
-    
+
     Args:
         args: Parsed command-line arguments
     """
+    import time as _time
+    _t0 = _time.perf_counter()
     logger.info(f"Starting drift check for workspace: {args.workspace}")
     # Respect explicit DRY_RUN env var to disable network side-effects even if .env enables them
     dry_run = os.getenv("DRY_RUN", "false").lower() == "true"
@@ -482,7 +490,7 @@ def run_check_mode(args):
         logger.info("DRY_RUN=true: disabling GitHub and Teams side-effects for this run")
         os.environ["GITHUB_ISSUE_ENABLED"] = "false"
         os.environ["TEAMS_NOTIFICATION_ENABLED"] = "false"
-    
+
     # Validate inputs
     try:
         validate_workspace(args.workspace)
@@ -491,8 +499,9 @@ def run_check_mode(args):
         logger.error(f"Validation error: {e}")
         print(f"❌ Error: {e}", file=sys.stderr)
         sys.exit(1)
-    
+
     # Initialize RAG vector store
+    _t_rag_start = _time.perf_counter()
     logger.info("Initializing RAG vector store...")
     try:
         vector_store = initialize_vector_store(
@@ -504,10 +513,13 @@ def run_check_mode(args):
         logger.exception("Failed to initialize vector store")
         print(f"❌ Error initializing vector store: {e}", file=sys.stderr)
         sys.exit(1)
-    
+    logger.info(f"TIMING | vector_store_init: {_time.perf_counter() - _t_rag_start:.2f}s")
+
     # Create agent
+    _t_agent_start = _time.perf_counter()
     logger.info("Creating drift detection agent...")
     agent = create_agent(retriever, enforce_json=True)
+    logger.info(f"TIMING | agent_creation: {_time.perf_counter() - _t_agent_start:.2f}s")
     
     # Construct user prompt
     user_prompt = f"""Check workspace '{args.workspace}' for infrastructure drift.
@@ -522,7 +534,7 @@ Provide a structured markdown report with drift summary and remediation commands
     
     # Invoke agent with retry/backoff to handle transient streaming truncation
     logger.info("Invoking agent for drift analysis...")
-    
+
     # Add Langfuse session grouping by workspace
     if LANGFUSE_AVAILABLE:
         try:
@@ -533,9 +545,14 @@ Provide a structured markdown report with drift summary and remediation commands
             )
         except Exception as e:
             logger.warning(f"Failed to update Langfuse trace context: {e}")
-    
+
     try:
+        _t_invoke_start = _time.perf_counter()
         result = None
+        # Malformed-tool-call errors embed the raw payload in the message.
+        # Detecting them early lets us route to compare_resources_raw immediately
+        # and skip expensive repeated AWS fetches on retry.
+        _MALFORMED_TOOL_CALL_RE = re.compile(r"error parsing tool call.*raw='(.*?)',\s*err=", re.S)
         max_attempts = 3
         for attempt in range(1, max_attempts + 1):
             try:
@@ -545,21 +562,29 @@ Provide a structured markdown report with drift summary and remediation commands
                 )
                 break
             except Exception as invoke_err:
-                # Retry on connection/streaming errors which indicate truncated body
-                import time
-                import httpx
                 msg = str(invoke_err)
                 logger.warning(f"Agent invoke attempt {attempt} failed: {msg}")
+                # If the error carries a raw tool-call payload, skip further retries
+                # (re-running the agent will repeat all AWS fetches with the same
+                # broken model output) and jump directly to the recovery path.
+                m_raw = _MALFORMED_TOOL_CALL_RE.search(msg)
+                if m_raw:
+                    logger.warning(
+                        "Malformed tool-call JSON detected — routing to compare_resources_raw "
+                        "recovery instead of retrying agent (avoids repeating AWS fetches)"
+                    )
+                    raise  # outer except block handles raw-payload recovery
                 if attempt < max_attempts:
-                    time.sleep(1 * attempt)
+                    _time.sleep(1 * attempt)
                     continue
-                # If final attempt fails, re-raise for existing recovery logic below
                 raise
+        logger.info(f"TIMING | agent_invoke: {_time.perf_counter() - _t_invoke_start:.2f}s")
 
         # Extract final answer
         answer = result["messages"][-1].content
 
         # Parse JSON data first
+        _t_parse_start = _time.perf_counter()
         json_data = None
         try:
             # Try to parse as direct JSON
@@ -579,7 +604,8 @@ Provide a structured markdown report with drift summary and remediation commands
                 logger.warning(f"Failed to parse JSON from markdown code block: {e}")
         except Exception as e:
             logger.warning(f"Error extracting JSON: {e}")
-        
+        logger.info(f"TIMING | json_parse: {_time.perf_counter() - _t_parse_start:.2f}s")
+
         # Format and print markdown report
         if json_data:
             markdown_report = format_drift_report(json_data, args.workspace)
@@ -612,13 +638,18 @@ Provide a structured markdown report with drift summary and remediation commands
             github_enabled = os.getenv("GITHUB_ISSUE_ENABLED", "false").lower() == "true"
             if github_enabled:
                 logger.info("GitHub issue creation is enabled")
+                _t_gh_start = _time.perf_counter()
                 created_issues = create_github_issues(json_data, args.workspace)
+                logger.info(f"TIMING | github_issue_creation: {_time.perf_counter() - _t_gh_start:.2f}s")
 
                 # Send Teams notifications if enabled
                 teams_enabled = os.getenv("TEAMS_NOTIFICATION_ENABLED", "false").lower() == "true"
                 if teams_enabled and created_issues:
+                    _t_teams_start = _time.perf_counter()
                     send_teams_notifications(json_data, created_issues, args.workspace)
+                    logger.info(f"TIMING | teams_notification: {_time.perf_counter() - _t_teams_start:.2f}s")
 
+        logger.info(f"TIMING | total_check_mode: {_time.perf_counter() - _t0:.2f}s")
         logger.info("Drift check completed successfully")
     
     except Exception as e:
@@ -670,10 +701,12 @@ Provide a structured markdown report with drift summary and remediation commands
                     teams_enabled = os.getenv("TEAMS_NOTIFICATION_ENABLED", "false").lower() == "true"
                     if teams_enabled and created_issues:
                         send_teams_notifications(json_data, created_issues, args.workspace)
+                logger.info(f"TIMING | total_check_mode (recovery): {_time.perf_counter() - _t0:.2f}s")
                 logger.info("Drift check completed with recovery path")
                 return
             except Exception as rec_e:
                 logger.exception("Recovery attempt failed")
+        logger.info(f"TIMING | total_check_mode (failed): {_time.perf_counter() - _t0:.2f}s")
         logger.exception("Agent execution failed")
         print(f"❌ Error during drift analysis: {e}", file=sys.stderr)
         sys.exit(1)
@@ -682,10 +715,12 @@ Provide a structured markdown report with drift summary and remediation commands
 def run_fix_mode(args):
     """
     Run remediation mode for a specific resource.
-    
+
     Args:
         args: Parsed command-line arguments
     """
+    import time as _time
+    _t0 = _time.perf_counter()
     logger.info(f"Starting remediation for resource: {args.resource}")
     # Respect explicit DRY_RUN env var to disable network side-effects even if .env enables them
     dry_run = os.getenv("DRY_RUN", "false").lower() == "true"
@@ -693,12 +728,12 @@ def run_fix_mode(args):
         logger.info("DRY_RUN=true: disabling GitHub and Teams side-effects for this run")
         os.environ["GITHUB_ISSUE_ENABLED"] = "false"
         os.environ["TEAMS_NOTIFICATION_ENABLED"] = "false"
-    
+
     # Validate inputs
     try:
         validate_workspace(args.workspace)
         state_file_path = validate_state_file(args.state_file)
-        
+
         # Validate resource ID format
         if not re.match(r"^[a-z]+-[0-9a-f]+$", args.resource):
             raise ValueError(
@@ -709,8 +744,9 @@ def run_fix_mode(args):
         logger.error(f"Validation error: {e}")
         print(f"❌ Error: {e}", file=sys.stderr)
         sys.exit(1)
-    
+
     # Initialize RAG vector store
+    _t_rag_start = _time.perf_counter()
     logger.info("Initializing RAG vector store...")
     try:
         vector_store = initialize_vector_store(
@@ -722,11 +758,14 @@ def run_fix_mode(args):
         logger.exception("Failed to initialize vector store")
         print(f"❌ Error initializing vector store: {e}", file=sys.stderr)
         sys.exit(1)
-    
+    logger.info(f"TIMING | vector_store_init: {_time.perf_counter() - _t_rag_start:.2f}s")
+
     # Create agent
+    _t_agent_start = _time.perf_counter()
     logger.info("Creating drift detection agent...")
     agent = create_agent(retriever, enforce_json=True)
-    
+    logger.info(f"TIMING | agent_creation: {_time.perf_counter() - _t_agent_start:.2f}s")
+
     # Construct user prompt for single resource
     user_prompt = f"""Generate a remediation plan for resource {args.resource} in workspace '{args.workspace}'.
 
@@ -741,28 +780,32 @@ Provide a focused remediation plan with:
 - Why it matters (policy violation and impact)
 - How to fix (exact Terraform command)
 - Verification steps (how to confirm fix worked)"""
-    
+
     # Invoke agent
+    _t_invoke_start = _time.perf_counter()
     logger.info("Invoking agent for remediation plan...")
     try:
         result = agent.invoke(
             {"messages": [HumanMessage(content=user_prompt)]},
             config={"recursion_limit": 50}
         )
-        
+        logger.info(f"TIMING | agent_invoke: {_time.perf_counter() - _t_invoke_start:.2f}s")
+
         # Extract final answer
         answer = result["messages"][-1].content
-        
+
         # Print remediation guide to stdout
         print("\n" + "=" * 80)
         print(f"## Remediation Plan — {args.resource}")
         print("=" * 80)
         print(answer)
         print("=" * 80 + "\n")
-        
+
+        logger.info(f"TIMING | total_fix_mode: {_time.perf_counter() - _t0:.2f}s")
         logger.info("Remediation plan generated successfully")
-    
+
     except Exception as e:
+        logger.info(f"TIMING | total_fix_mode (failed): {_time.perf_counter() - _t0:.2f}s")
         logger.exception("Agent execution failed")
         print(f"❌ Error generating remediation plan: {e}", file=sys.stderr)
         sys.exit(1)
