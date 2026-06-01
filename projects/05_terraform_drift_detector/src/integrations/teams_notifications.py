@@ -9,6 +9,58 @@ from common.utils import get_logger
 logger = get_logger(__name__)
 
 
+def _teams_webhook_succeeded(resp: requests.Response) -> bool:
+    """Treat standard connector success responses as delivered."""
+    if 200 <= resp.status_code < 300:
+        body = resp.text.strip()
+        return body in {"", "1"}
+    return False
+
+
+def _build_summary_message_card(
+    owner: str,
+    repo: str,
+    workspace: str,
+    facts: list,
+    issues_created: list,
+    color: str,
+) -> Dict[str, Any]:
+    """Build a legacy connector card payload for webhook compatibility."""
+    theme_colors = {
+        "Attention": "E81123",
+        "Warning": "FF8C00",
+        "Accent": "0078D4",
+        "Good": "107C10",
+        "Default": "5C5C5C",
+    }
+    markdown_lines = [f"**{fact['title']}** {fact['value']}" for fact in facts]
+
+    card = {
+        "@type": "MessageCard",
+        "@context": "https://schema.org/extensions",
+        "summary": f"Terraform drift summary for {workspace}",
+        "themeColor": theme_colors.get(color, theme_colors["Default"]),
+        "title": "Drift Detection Summary",
+        "sections": [
+            {
+                "activityTitle": f"Repository: {owner}/{repo}",
+                "text": "\n".join(markdown_lines),
+                "markdown": True,
+            }
+        ],
+        "potentialAction": [],
+    }
+
+    for idx, issue_url in enumerate(issues_created[:3]):
+        card["potentialAction"].append({
+            "@type": "OpenUri",
+            "name": f"View Issue #{idx + 1}",
+            "targets": [{"os": "default", "uri": issue_url}],
+        })
+
+    return card
+
+
 def get_severity_color(severity: str) -> str:
     """
     Get color code for severity level.
@@ -237,7 +289,7 @@ def send_drift_summary_notification(
         })
         
         # Build adaptive card
-        card = {
+        adaptive_card = {
             "type": "message",
             "attachments": [
                 {
@@ -273,30 +325,70 @@ def send_drift_summary_notification(
         }
         
         # Add action buttons for each issue
-        actions = card["attachments"][0]["content"]["actions"]
+        actions = adaptive_card["attachments"][0]["content"]["actions"]
         for idx, issue_url in enumerate(issues_created[:3]):  # Limit to 3 buttons
             actions.append({
                 "type": "Action.OpenUrl",
                 "title": f"View Issue #{idx + 1}",
                 "url": issue_url
             })
+
+        fallback_card = _build_summary_message_card(
+            owner=owner,
+            repo=repo,
+            workspace=workspace,
+            facts=facts,
+            issues_created=issues_created,
+            color=color,
+        )
         
-        # Send notification
+        # Send notification, then fall back to a legacy connector card for
+        # webhook configurations that do not accept adaptive-card envelopes.
         logger.info("Sending Teams drift summary notification")
+        try:
+            resp = requests.post(
+                webhook_url,
+                headers={"Content-Type": "application/json"},
+                json=adaptive_card,
+                timeout=10
+            )
+            resp.raise_for_status()
+
+            if _teams_webhook_succeeded(resp):
+                logger.info("Successfully sent Teams summary notification")
+                return True
+
+            logger.warning(
+                "Teams adaptive-card webhook returned unexpected response: %s. Retrying with legacy connector card.",
+                resp.text,
+            )
+        except Exception as e:
+            if isinstance(e, requests.exceptions.HTTPError) and e.response is not None:
+                logger.warning(
+                    "Teams adaptive-card webhook failed: %s - %s. Retrying with legacy connector card.",
+                    e.response.status_code,
+                    e.response.reason,
+                )
+            else:
+                logger.warning(
+                    "Teams adaptive-card webhook failed: %s. Retrying with legacy connector card.",
+                    e,
+                )
+
         resp = requests.post(
             webhook_url,
             headers={"Content-Type": "application/json"},
-            json=card,
+            json=fallback_card,
             timeout=10
         )
         resp.raise_for_status()
-        
-        if resp.text.strip() == "1":
-            logger.info("Successfully sent Teams summary notification")
+
+        if _teams_webhook_succeeded(resp):
+            logger.info("Successfully sent Teams summary notification via legacy connector card")
             return True
-        else:
-            logger.warning(f"Teams webhook returned unexpected response: {resp.text}")
-            return False
+
+        logger.warning(f"Teams webhook returned unexpected response: {resp.text}")
+        return False
         
     except requests.exceptions.HTTPError as e:
         logger.error(f"Teams webhook HTTP error: {e.response.status_code} - {e.response.reason}")

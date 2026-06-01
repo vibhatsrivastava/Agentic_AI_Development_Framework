@@ -8,6 +8,22 @@ from common.utils import get_logger, require_env
 logger = get_logger(__name__)
 
 
+def _matches_existing_drift_issue(issue: Dict, resource_id: str, drift_type: Optional[str] = None) -> bool:
+    """Return True when an open issue already tracks the same drifted resource."""
+    title = (issue.get("title") or "").lower()
+    body = (issue.get("body") or "").lower()
+    resource_id_lower = (resource_id or "").lower()
+    drift_type_lower = (drift_type or "").lower()
+
+    if resource_id_lower and resource_id_lower not in title and resource_id_lower not in body:
+        return False
+
+    if drift_type_lower and drift_type_lower not in title and drift_type_lower not in body:
+        return False
+
+    return True
+
+
 def _get_existing_repo_labels(owner: str, repo: str, headers: Dict[str, str]) -> Set[str]:
     """Best-effort fetch of existing repository labels for payload validation."""
     try:
@@ -187,6 +203,7 @@ def search_existing_issues(
     Returns:
         JSON string with search results: {"found": bool, "issue_number": int, "issue_url": str}
     """
+    search_error = None
     try:
         headers = get_github_headers(token)
         
@@ -225,17 +242,59 @@ def search_existing_issues(
                 "issue_title": issue["title"],
             }, indent=2)
         else:
-            logger.info("No existing issue found")
-            return json.dumps({"found": False, "count": 0}, indent=2)
+            logger.info("No existing issue found via GitHub search API, checking recent open drift issues directly")
         
+    except requests.exceptions.HTTPError as e:
+        search_error = f"GitHub API error: {e.response.status_code} - {e.response.reason}"
+        logger.warning(f"Search API lookup failed, falling back to issue list scan: {search_error}")
+    except Exception as e:
+        search_error = f"Error searching GitHub issues: {str(e)}"
+        logger.warning(f"Search API lookup failed, falling back to issue list scan: {search_error}")
+
+    try:
+        resp = requests.get(
+            f"https://api.github.com/repos/{owner}/{repo}/issues",
+            headers=headers,
+            params={
+                "state": "open",
+                "labels": "infrastructure-drift",
+                "per_page": 100,
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+
+        for issue in resp.json():
+            if not isinstance(issue, dict):
+                continue
+            if _matches_existing_drift_issue(issue, resource_id, drift_type):
+                logger.info(
+                    "Found existing issue via repository issue scan #%s: %s",
+                    issue.get("number"),
+                    issue.get("html_url"),
+                )
+                return json.dumps({
+                    "found": True,
+                    "count": 1,
+                    "issue_number": issue.get("number"),
+                    "issue_url": issue.get("html_url"),
+                    "issue_title": issue.get("title"),
+                }, indent=2)
+
+        logger.info("No existing issue found")
+        result = {"found": False, "count": 0}
+        if search_error:
+            result["search_error"] = search_error
+        return json.dumps(result, indent=2)
+
     except requests.exceptions.HTTPError as e:
         error_msg = f"GitHub API error: {e.response.status_code} - {e.response.reason}"
         logger.error(error_msg)
-        return json.dumps({"success": False, "error": error_msg})
+        return json.dumps({"success": False, "error": error_msg, "found": False})
     except Exception as e:
         error_msg = f"Error searching GitHub issues: {str(e)}"
         logger.error(error_msg)
-        return json.dumps({"success": False, "error": error_msg})
+        return json.dumps({"success": False, "error": error_msg, "found": False})
 
 
 def update_issue_labels(

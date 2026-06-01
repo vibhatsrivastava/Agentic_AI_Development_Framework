@@ -230,3 +230,33 @@ def test_send_drift_summary_notification_no_drift(mock_post):
     card_data = mock_post.call_args[1]["json"]
     card_content = card_data["attachments"][0]["content"]
     assert card_content["body"][0]["style"] == "Good"
+
+
+@patch("src.integrations.teams_notifications.requests.post")
+def test_send_drift_summary_notification_falls_back_to_legacy_connector_card(mock_post):
+    """Use a MessageCard fallback when the webhook rejects the adaptive-card payload."""
+    failed_response = Mock()
+    failed_response.status_code = 400
+    failed_response.reason = "Bad Request"
+    failed_response.raise_for_status.side_effect = Exception("400 Bad Request")
+
+    success_response = Mock()
+    success_response.status_code = 200
+    success_response.text = "1"
+
+    mock_post.side_effect = [failed_response, success_response]
+
+    result = send_drift_summary_notification(
+        owner="test-owner",
+        repo="test-repo",
+        workspace="production",
+        drift_summary={"total_resources": 1, "drifted": 1, "compliant": 0, "severity_breakdown": {"HIGH": 1}},
+        issues_created=["https://github.com/test/repo/issues/1"],
+        webhook_url="https://test.webhook.office.com/test",
+    )
+
+    assert result is True
+    assert mock_post.call_count == 2
+    fallback_payload = mock_post.call_args_list[1][1]["json"]
+    assert fallback_payload["@type"] == "MessageCard"
+    assert fallback_payload["potentialAction"][0]["targets"][0]["uri"] == "https://github.com/test/repo/issues/1"

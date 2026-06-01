@@ -248,6 +248,40 @@ def test_search_existing_issues_not_found(mock_get, mock_env_vars):
     assert result_data["count"] == 0
 
 
+@patch("src.tools.github_tools.requests.get")
+def test_search_existing_issues_falls_back_to_issue_list_scan(mock_get, mock_env_vars):
+    """Fallback scan should dedupe even when GitHub search misses a recent issue."""
+    search_response = Mock()
+    search_response.status_code = 200
+    search_response.json.return_value = {"total_count": 0, "items": []}
+
+    list_response = Mock()
+    list_response.status_code = 200
+    list_response.json.return_value = [
+        {
+            "number": 101,
+            "html_url": "https://github.com/test-owner/test-repo/issues/101",
+            "title": "🚨 Drift: aws_instance.drift_test - tags_modified (default)",
+            "body": "**Resource ID:** `aws_instance.drift_test`\n**Type:** tags_modified",
+        }
+    ]
+
+    mock_get.side_effect = [search_response, list_response]
+
+    result = search_existing_issues(
+        owner="test-owner",
+        repo="test-repo",
+        resource_id="aws_instance.drift_test",
+        drift_type="tags_modified",
+        token="test_token",
+    )
+
+    result_data = json.loads(result)
+    assert result_data["found"] is True
+    assert result_data["issue_number"] == 101
+    assert mock_get.call_count == 2
+
+
 @patch("src.tools.github_tools.requests.post")
 @patch("src.tools.github_tools.requests.delete")
 def test_update_issue_labels(mock_delete, mock_post, mock_env_vars):
