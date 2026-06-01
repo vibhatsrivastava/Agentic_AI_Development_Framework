@@ -1,13 +1,26 @@
 """Policy-based drift analysis tools using RAG."""
 
 import json
+import hashlib
 from langchain_core.tools import tool
 from langchain_core.retrievers import BaseRetriever
 from langchain_core.messages import HumanMessage
 from common import llm_factory
 from common.utils import get_logger
+from common.cache import get_global_cache
+
+# Langfuse tracing imports
+try:
+    from langfuse.decorators import observe, langfuse_context
+    LANGFUSE_AVAILABLE = True
+except ImportError:
+    LANGFUSE_AVAILABLE = False
 
 logger = get_logger(__name__)
+
+# Initialize caches for RAG retrieval and LLM responses
+_rag_cache = get_global_cache(capacity=50, ttl=3600)  # 1 hour TTL
+_llm_cache = get_global_cache(capacity=100, ttl=3600)  # 1 hour TTL
 
 
 def create_policy_analysis_tool(retriever: BaseRetriever):
@@ -64,13 +77,13 @@ def create_policy_analysis_tool(retriever: BaseRetriever):
                 # Construct RAG query from drift context
                 query = _build_policy_query(drift)
                 
-                # Retrieve relevant policy chunks
-                policy_docs = retriever.get_relevant_documents(query, k=5)
+                # Retrieve relevant policy chunks with caching
+                policy_docs = _get_cached_policy_docs(retriever, query, drift)
                 policy_context = _format_policy_documents(policy_docs)
                 
-                # LLM analysis with retrieved policies
+                # LLM analysis with retrieved policies (with caching)
                 analysis_prompt = _build_analysis_prompt(drift, policy_context)
-                analysis_response = llm.invoke([HumanMessage(content=analysis_prompt)])
+                analysis_response = _get_cached_llm_response(llm, analysis_prompt, drift, policy_docs)
                 
                 # Parse LLM response
                 enriched_reports.append({
@@ -103,42 +116,156 @@ def create_policy_analysis_tool(retriever: BaseRetriever):
                     },
                     "error": f"Analysis failed: {str(e)}"
                 })
-        
+
         logger.info(f"Completed policy analysis for {len(enriched_reports)} resources")
+
+        # Log cache statistics
+        rag_stats = _rag_cache.get_stats()
+        llm_stats = _llm_cache.get_stats()
+        logger.info(f"RAG cache: {rag_stats['hit_rate']} hit rate ({rag_stats['hits']} hits, {rag_stats['misses']} misses)")
+        logger.info(f"LLM cache: {llm_stats['hit_rate']} hit rate ({llm_stats['hits']} hits, {llm_stats['misses']} misses)")
+
         return json.dumps({
             "total_analyzed": len(enriched_reports),
             "enriched_drift_reports": enriched_reports
         }, indent=2)
-    
+
     return analyze_drift_with_policies
+        
+def _get_cached_policy_docs(retriever: BaseRetriever, query: str, drift: dict) -> list:
+    """
+    Retrieve policy documents with caching.
+    
+    Args:
+        retriever: RAG retriever
+        query: Query string
+        drift: Drift dictionary for cache key
+    
+    Returns:
+        List of retrieved documents
+    """
+    # Cache key: hash of drift type + resource type
+    cache_key = hashlib.md5(
+        f"{drift.get('drift_type', '')}:{drift.get('resource_type', '')}".encode()
+    ).hexdigest()
+    
+    # Check cache
+    cached_docs = _rag_cache.get(cache_key)
+    if cached_docs is not None:
+        logger.debug(f"RAG cache hit: {cache_key}")
+        return cached_docs
+    
+    # Retrieve from vector store
+    logger.debug(f"RAG cache miss: {cache_key}")
+    
+    # Add tracing for RAG retrieval
+    if LANGFUSE_AVAILABLE:
+        try:
+            langfuse_context.update_current_observation(
+                name="rag_retrieval",
+                metadata={
+                    "query": query,
+                    "drift_type": drift.get("drift_type"),
+                    "resource_type": drift.get("resource_type")
+                }
+            )
+        except Exception:
+            pass
+    
+    policy_docs = retriever.get_relevant_documents(query)  # k set at retriever initialization
+    
+    # Cache result
+    _rag_cache.put(cache_key, policy_docs)
+    
+    # Log retrieved sources
+    if LANGFUSE_AVAILABLE:
+        try:
+            sources = [doc.metadata.get("source", "unknown") for doc in policy_docs]
+            langfuse_context.update_current_observation(
+                metadata={
+                    "chunks_retrieved": len(policy_docs),
+                    "sources": sources
+                }
+            )
+        except Exception:
+            pass
+    
+    logger.debug(f"Retrieved {len(policy_docs)} policy chunks from sources: {[doc.metadata.get('source', 'unknown') for doc in policy_docs]}")
+    return policy_docs
+
+
+def _get_cached_llm_response(llm, analysis_prompt: str, drift: dict, policy_docs: list):
+    """
+    Get LLM response with caching.
+    
+    Args:
+        llm: LLM instance
+        analysis_prompt: Prompt for LLM
+        drift: Drift dictionary
+        policy_docs: Retrieved policy documents
+    
+    Returns:
+        LLM response
+    """
+    # Cache key: hash of drift summary + policy content
+    cache_content = json.dumps({
+        "drift": {
+            "type": drift.get("drift_type"),
+            "resource": drift.get("resource_type"),
+            "changes": drift.get("changes")
+        },
+        "policies": [doc.page_content for doc in policy_docs]
+    }, sort_keys=True)
+    
+    cache_key = hashlib.md5(cache_content.encode()).hexdigest()
+    
+    # Check cache
+    cached_response = _llm_cache.get(cache_key)
+    if cached_response is not None:
+        logger.debug(f"LLM cache hit: {cache_key}")
+        return cached_response
+    
+    # Invoke LLM
+    logger.debug(f"LLM cache miss: {cache_key}")
+    response = llm.invoke([HumanMessage(content=analysis_prompt)])
+    
+    # Cache result
+    _llm_cache.put(cache_key, response)
+    
+    return response
 
 
 def _build_policy_query(drift: dict) -> str:
     """
-    Build a RAG query from drift context.
+    Build a semantic RAG query from drift context.
     
     Args:
         drift: Drift dictionary with resource_type, drift_type, changes
     
     Returns:
-        Query string for policy retrieval
+        Semantic query string for better policy retrieval
     """
     resource_type = drift.get("resource_type", "")
     drift_type = drift.get("drift_type", "")
     changes = drift.get("changes", {})
     
-    query_parts = [resource_type, drift_type]
-    
-    # Add specific details based on drift type
+    # Build semantic query with context
     if drift_type == "tags_modified":
         removed_tags = changes.get("removed_tags", [])
         if removed_tags:
-            query_parts.extend(removed_tags)
-    elif drift_type == "attributes_changed":
-        modified_attrs = changes.get("modified_attributes", {})
-        query_parts.extend(modified_attrs.keys())
+            return f"Required tags for {resource_type}: {', '.join(removed_tags)}"
+        return f"Tagging requirements for {resource_type}"
     
-    return " ".join(query_parts)
+    elif drift_type == "security_group_changed":
+        return f"Security group policies for {resource_type} ingress egress rules"
+    
+    elif drift_type == "attributes_changed":
+        modified_attrs = list(changes.get("modified_attributes", {}).keys())
+        if modified_attrs:
+            return f"{resource_type} policy requirements for attributes: {', '.join(modified_attrs)}"
+    
+    # Fallback: generic query
+    return f"{resource_type} {drift_type} policy requirements"
 
 
 def _format_policy_documents(policy_docs: list) -> str:

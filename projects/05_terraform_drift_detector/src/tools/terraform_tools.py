@@ -1,19 +1,24 @@
 """Terraform state parsing tools."""
 
 import json
+import os
 import re
 from pathlib import Path
 from langchain_core.tools import tool
 from common.utils import get_logger
+from common.cache import get_global_cache
 
 logger = get_logger(__name__)
+
+# Initialize cache for state file parsing
+_state_cache = get_global_cache(capacity=10, ttl=3600)  # 1 hour TTL
 
 
 @tool
 def parse_terraform_state(file_path: str) -> str:
     """
     Parse Terraform state file and extract resource information.
-    Redacts sensitive attributes before returning.
+    Redacts sensitive attributes before returning. Results are cached.
     
     Args:
         file_path: Path to .tfstate file
@@ -28,6 +33,22 @@ def parse_terraform_state(file_path: str) -> str:
     file_path_obj = Path(file_path)
     if not file_path_obj.exists():
         return json.dumps({"error": f"State file not found: {file_path}"})
+    
+    # Cache key: file path + modification time
+    try:
+        mtime = os.path.getmtime(file_path)
+        cache_key = f"{file_path}:{mtime}"
+        
+        # Check cache
+        cached_result = _state_cache.get(cache_key)
+        if cached_result is not None:
+            logger.debug(f"State parsing cache hit: {file_path}")
+            return cached_result
+        
+        logger.debug(f"State parsing cache miss: {file_path}")
+    except Exception as e:
+        logger.warning(f"Failed to check state file cache: {e}")
+        cache_key = None
     
     try:
         with open(file_path, "r", encoding="utf-8") as f:
@@ -62,10 +83,16 @@ def parse_terraform_state(file_path: str) -> str:
             })
     
     logger.info(f"Parsed {len(resources)} resources from state file")
-    return json.dumps({
+    result = json.dumps({
         "total_resources": len(resources),
         "resources": resources
     }, indent=2)
+    
+    # Cache result
+    if cache_key:
+        _state_cache.put(cache_key, result)
+    
+    return result
 
 
 def _redact_sensitive_attributes(attributes: dict, sensitive_paths: list) -> dict:

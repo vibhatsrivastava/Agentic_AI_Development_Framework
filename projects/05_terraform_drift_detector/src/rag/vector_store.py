@@ -70,6 +70,7 @@ def initialize_vector_store(
     policy_loader = document_loaders.DirectoryLoader(
         str(policies_dir),
         glob="**/*.yaml",
+        exclude=["**/teams.yaml"],  # Exclude operational metadata from policy index
         show_progress=True,
     )
     policy_docs = policy_loader.load()
@@ -102,8 +103,8 @@ def initialize_vector_store(
     
     # Split documents into chunks for precise retrieval
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=500,  # Small chunks for precise policy citations
-        chunk_overlap=50,
+        chunk_size=1500,  # Optimized: larger chunks keep policy blocks intact
+        chunk_overlap=200,  # Increased overlap for better context preservation
         length_function=len,
     )
     chunks = splitter.split_documents(all_docs)
