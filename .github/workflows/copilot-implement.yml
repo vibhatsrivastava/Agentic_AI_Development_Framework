@@ -1,7 +1,8 @@
 name: Copilot Auto-Implementation
 
-# Trigger when CODEOWNERS approve an issue for implementation
-# Command: /implement-plan
+# Automatically assigns issues to GitHub Copilot when CODEOWNERS approve
+# Command: /implement-plan [branch=<branch-name>] [model=<model-name>]
+# Copilot will automatically start working and create a PR
 on:
   issue_comment:
     types: [created]
@@ -202,10 +203,112 @@ jobs:
             // The issue remains unassigned until opened in Copilot Workspace
             console.log('💡 Tip: Click "Open in Copilot Workspace" button to begin');
       
-      - name: Post confirmation comment
+      - name: Assign Issue to GitHub Copilot
+        id: assign-copilot
         if: |
           steps.check-codeowner.outputs.is_codeowner == 'true' &&
           steps.check-command.outputs.has_command == 'true'
+        uses: actions/github-script@v7
+        env:
+          BRANCH_NAME: ${{ steps.check-command.outputs.branch }}
+          MODEL_NAME: ${{ steps.check-command.outputs.model }}
+        with:
+          script: |
+            const issueNumber = context.issue.number;
+            const branch = process.env.BRANCH_NAME;
+            const model = process.env.MODEL_NAME;
+            const targetRepo = `${context.repo.owner}/${context.repo.repo}`;
+            
+            // Build custom instructions from repository conventions
+            const customInstructions = `Follow repository conventions from .github/copilot-instructions.md:
+            - Use common/ package for LLM initialization (get_llm(), get_chat_llm(), get_embeddings())
+            - Follow LCEL pattern for chain composition (prompt | llm | parser)
+            - Use LangGraph create_react_agent for new agents
+            - Maintain 75% test coverage minimum
+            - Mock all LLM calls in tests
+            - Target branch: ${branch}`;
+            
+            try {
+              console.log(`🤖 Assigning issue #${issueNumber} to Copilot...`);
+              console.log(`📋 Configuration: branch=${branch}, model=${model}`);
+              
+              // Assign the issue to Copilot via REST API
+              const response = await github.request('POST /repos/{owner}/{repo}/issues/{issue_number}/assignees', {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                assignees: ['copilot-swe-agent[bot]'],
+                agent_assignment: {
+                  target_repo: targetRepo,
+                  base_branch: branch,
+                  custom_instructions: customInstructions,
+                  custom_agent: '',
+                  model: model || ''
+                },
+                headers: {
+                  'X-GitHub-Api-Version': '2022-11-28'
+                }
+              });
+              
+              console.log('✅ Successfully assigned issue to Copilot');
+              console.log(`📊 Response status: ${response.status}`);
+              console.log(`👤 Assignees: ${response.data.assignees?.map(a => a.login).join(', ') || 'none'}`);
+              
+              // Set output for next steps
+              core.setOutput('assigned', 'true');
+              core.setOutput('copilot_assigned', 'true');
+              
+              return {
+                success: true,
+                assignees: response.data.assignees?.map(a => a.login) || [],
+                message: 'Issue successfully assigned to Copilot'
+              };
+              
+            } catch (error) {
+              console.error('❌ Failed to assign issue to Copilot:', error.message);
+              console.error('Error details:', error);
+              
+              // Set output indicating failure
+              core.setOutput('assigned', 'false');
+              core.setOutput('copilot_assigned', 'false');
+              core.setOutput('error_message', error.message);
+              
+              // Post error comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: `⚠️ **Automatic Assignment Failed**
+                
+                Unable to automatically assign this issue to GitHub Copilot.
+                
+                **Error:** ${error.message}
+                
+                **Manual workaround:**
+                1. Click the **"Open in Copilot Workspace"** button at the top of this issue
+                2. Or manually assign this issue to \`@copilot-swe-agent\` in the assignees dropdown
+                
+                **Note:** Automatic assignment requires:
+                - GitHub Copilot Pro, Business, or Enterprise subscription
+                - Copilot cloud agent enabled for this repository
+                - Proper API permissions
+                
+                ---
+                *If this error persists, check repository Copilot settings or contact your GitHub admin*`
+              });
+              
+              return {
+                success: false,
+                error: error.message,
+                message: 'Failed to assign issue to Copilot'
+              };
+            }
+      
+      - name: Post success notification
+        if: |
+          steps.check-codeowner.outputs.is_codeowner == 'true' &&
+          steps.check-command.outputs.has_command == 'true' &&
+          steps.assign-copilot.outputs.copilot_assigned == 'true'
         uses: actions/github-script@v7
         with:
           script: |
@@ -216,177 +319,29 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: `✅ **Implementation Approved - Ready for GitHub Copilot Workspace**
+              body: `🎉 **Copilot is now working on this issue!**
               
-              @${{ github.event.comment.user.login }} has approved this issue for implementation.
+              GitHub Copilot cloud agent has been automatically assigned and is starting work.
+              
+              **What happens next:**
+              1. 🔧 Copilot will analyze the issue and all comments
+              2. 🌿 Create a new branch: \`${branch}\`
+              3. 💻 Implement the solution following repository conventions
+              4. 🧪 Generate comprehensive tests (>=75% coverage)
+              5. 📝 Update documentation as needed
+              6. 🔀 Open a pull request automatically
+              7. 👀 Request your review when complete
+              
+              **Track progress:**
+              - Watch for commits on branch \`${branch}\`
+              - Monitor the [Agents panel](https://github.com/copilot/agents)
+              - Check [session logs](https://github.com/copilot/agents) for real-time updates
               
               **Configuration:**
-              - 🌿 **Branch:** \`${branch}\`
-              - 🤖 **Model:** \`${model}\`
-              - 👤 **Approver:** @${{ github.event.comment.user.login }}
-              - 🏷️ **Labels:** \`copilot-implementing\`, \`approved\`, \`ready-for-copilot\`
+              - Model: \`${model}\`
+              - Following conventions from \`.github/copilot-instructions.md\`
               
               ---
               
-              ## 🚀 Three Ways to Implement
-              
-              ### Option 1: GitHub Copilot Workspace (Recommended) ⭐
-              
-              **Prerequisites:**
-              - GitHub Copilot license (Individual or Business)
-              - Repository access with Copilot enabled
-              
-              **Steps:**
-              1. Click the **"Open in Copilot Workspace"** button at the top of this issue page
-                 - If button is not visible, you may need to enable Copilot for this repository in Settings
-              2. Review the issue context that Copilot loads automatically
-              3. Approve Copilot's implementation plan
-              4. Copilot will:
-                 - Create branch: \`${branch}\`
-                 - Write production-ready code following repository conventions
-                 - Generate comprehensive tests (>=75% coverage requirement)
-                 - Update documentation as needed
-                 - Open a pull request automatically
-              
-              **What Copilot Knows:**
-              - All issue comments and context below
-              - Repository structure and coding conventions (from \`.github/copilot-instructions.md\`)
-              - Testing requirements (75% coverage minimum)
-              - Common patterns (LCEL chains, LangGraph agents, common/ package usage)
-              
-              **Benefits:**
-              - ⚡ Fastest implementation (40-60% time savings)
-              - ✅ Follows repository conventions automatically
-              - 🧪 Generates comprehensive test suites
-              - 📝 Updates documentation
-              
-              ---
-              
-              ### Option 2: VS Code with GitHub Copilot
-              
-              **Prerequisites:**
-              - VS Code with GitHub Copilot extension
-              - Repository cloned locally
-              
-              **Steps:**
-              1. Open this repository in VS Code
-              2. Open GitHub Copilot Chat panel
-              3. Reference this issue: \`@workspace Implement issue #${{ github.event.issue.number }}\`
-              4. Copilot will suggest implementation approach
-              5. Create branch: \`${branch}\`
-              6. Implement with Copilot's assistance
-              7. Commit, push, and create PR manually
-              
-              **Benefits:**
-              - 💻 Work in familiar IDE environment
-              - 🔄 More control over each step
-              - 🎯 Good for complex or iterative implementations
-              
-              ---
-              
-              ### Option 3: Manual Implementation
-              
-              **For developers without Copilot access:**
-              
-              **Steps:**
-              1. Review implementation context in the comment below
-              2. Create branch: \`git checkout -b ${branch}\`
-              3. Implement according to acceptance criteria
-              4. Follow repository conventions (see \`.github/copilot-instructions.md\`)
-              5. Write tests (maintain >=75% coverage)
-              6. Run: \`pytest --cov --cov-fail-under=75\`
-              7. Create PR to \`dev\` branch
-              
-              **Repository Conventions:**
-              - Use \`common/\` package for LLM initialization
-              - Follow LCEL pattern for chain composition (\`prompt | llm | parser\`)
-              - Use LangGraph \`create_react_agent\` for new agents
-              - Maintain 75% test coverage minimum
-              - Mock all LLM calls in tests
-              
-              ---
-              
-              ## 📚 Documentation
-              
-              - **Quick Guide:** [GitHub Copilot Integration](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/github-copilot-integration.md)
-              - **Detailed Reference:** [GitHub Copilot Workspace](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/Quick-Reference/05_GitHub_Copilot_Workspace_Integration.md)
-              - **CI/CD Quick Reference:** [CI/CD Commands](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/ci-cd-quickref.md)
-              - **Testing Strategy:** [Testing Guide](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/TESTING_STRATEGY.md)
-              
-              ---
-              
-              ## 💡 Tips for Success
-              
-              1. **Review all comments below** - Copilot reads everything
-              2. **Check the implementation plan** before approving in Copilot Workspace
-              3. **Test the PR** - CI will run automatically, but manual testing is recommended
-              4. **Iterate if needed** - Comment on PR with requested changes, Copilot can refine
-              5. **Follow up** - Copilot works best with clear, specific feedback
-              
-              ---
-              
-              📋 *All issue context has been collected and is ready for GitHub Copilot Workspace*`
+              💡 *You'll receive a notification when the PR is ready for review*`
             });
-      
-      - name: Trigger GitHub Copilot Workspace
-        if: |
-          steps.check-codeowner.outputs.is_codeowner == 'true' &&
-          steps.check-command.outputs.has_command == 'true'
-        uses: actions/github-script@v7
-        env:
-          BRANCH_NAME: ${{ steps.check-command.outputs.branch }}
-          MODEL_NAME: ${{ steps.check-command.outputs.model }}
-        with:
-          script: |
-            // Read issue context
-            const fs = require('fs');
-            const issueContext = JSON.parse(fs.readFileSync('issue-context.json', 'utf8'));
-            
-            // Prepare the prompt for Copilot
-            let prompt = `# Issue #${issueContext.number}: ${issueContext.title}\n\n`;
-            prompt += `${issueContext.body}\n\n`;
-            prompt += `## Comments and Feedback\n\n`;
-            
-            issueContext.comments.forEach((comment, idx) => {
-              prompt += `### Comment ${idx + 1} by @${comment.author}\n`;
-              prompt += `${comment.body}\n\n`;
-            });
-            
-            prompt += `\n## Implementation Instructions\n\n`;
-            prompt += `Please implement the solution described in this issue, taking into account:\n`;
-            prompt += `1. All comments and feedback provided above\n`;
-            prompt += `2. Any proposed changes or modifications suggested before approval\n`;
-            prompt += `3. Follow the repository's coding standards and conventions\n`;
-            prompt += `4. Create appropriate tests for your changes\n`;
-            prompt += `5. Update documentation as needed\n\n`;
-            prompt += `**Target Branch:** ${process.env.BRANCH_NAME}\n`;
-            prompt += `**LLM Model:** ${process.env.MODEL_NAME}\n`;
-            
-            // Create a new issue comment with the full context for manual triggering
-            // Note: Automatic Copilot Workspace triggering requires GitHub Copilot for Business
-            // This creates a formatted issue comment that can be used to manually trigger Copilot
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: `## 🤖 Copilot Implementation Context
-              
-              <details>
-              <summary>Click to view full implementation context</summary>
-              
-              \`\`\`
-              ${prompt}
-              \`\`\`
-              
-              </details>
-              
-              **To implement:**
-              - Use GitHub Copilot Workspace on this issue
-              - Or manually create branch \`${process.env.BRANCH_NAME}\` and implement
-              - Reference this context when implementing
-              
-              ---
-              *Auto-generated by CI/CD Pipeline*`
-            });
-            
-            console.log('✅ Implementation context prepared and posted');

@@ -66,10 +66,10 @@ class EnvManager:
         ⚠️ IMPORTANT: This file should ONLY exist when integrations are selected.
         Base Ollama/Vault variables are intentionally excluded — they live in
         the repo-root .env and are found automatically via load_project_env().
-        
+
         The generated file is a template for creating a project-level .env file
         with integration-specific variables (GITHUB_*, REDIS_*, PGVECTOR_*, etc.).
-        
+
         Users should:
         1. Copy this file to .env in the project directory
         2. Configure the integration-specific values

@@ -1,0 +1,44 @@
+# policies/compliance.yaml — Compliance framework mappings
+
+frameworks:
+  SOC2:
+    sections:
+      - id: "4.2.1"
+        title: "Data Retention"
+        requirements:
+          - All production data stores must have automated backup schedules
+          - Backup retention period: minimum 30 days
+          - Resources: EC2 instances, RDS databases, S3 buckets
+        validation:
+          - Required tags: Environment, Backup
+          - AWS Backup plan enrollment required
+      
+      - id: "4.3.2"
+        title: "Access Control"
+        requirements:
+          - Security groups must restrict ingress to known IP ranges
+          - No 0.0.0.0/0 ingress except ports 80, 443
+          - SSH (port 22) restricted to VPN CIDR only
+        validation:
+          - Security group rules: no unrestricted SSH
+
+  HIPAA:
+    sections:
+      - id: "§164.308(a)(7)(ii)(A)"
+        title: "Data Backup Plan"
+        requirements:
+          - Establish and implement procedures to create and maintain retrievable exact copies of ePHI
+          - Backup frequency: daily minimum for production systems
+        validation:
+          - EC2 instances with ePHI must have Backup=daily tag
+          - RDS databases must have automated backups enabled
+
+  PCI:
+    sections:
+      - id: "1.3.4"
+        title: "Firewall Configuration"
+        requirements:
+          - Do not allow unauthorized outbound traffic from cardholder data environment
+          - Restrict inbound and outbound traffic to necessary protocols
+        validation:
+          - Security groups: no 0.0.0.0/0 egress except ports 80, 443

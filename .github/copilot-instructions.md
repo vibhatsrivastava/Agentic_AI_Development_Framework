@@ -1,6 +1,7 @@
 # GitHub Copilot Workspace Instructions
 
 > Applies to all files in this repository.
+> Prefer code-first responses with concise explanations, and always include clear docstrings where required.
 
 ---
 
@@ -105,6 +106,14 @@ Agentic_AI_Development_Framework/
 - ✅ Clear separation: common variables vs. integration variables
 - ✅ Backward compatible: existing projects continue to work
 
+**Credential Resolution Order:**
+
+1. **Vault** (if `VAULT_ENABLED=true`): retrieve secrets from configured Vault path.
+2. **Project `.env`**: use project-level integration variables when present.
+3. **Root `.env`**: use shared defaults and fallback values.
+
+If `load_project_env()` finds no `.env` at the repo root, it must raise an `EnvironmentError` with the message: `"Root .env not found. Copy .env.example to .env and configure required variables."`
+
 **Optional: HashiCorp Vault Integration**
 
 For teams with multiple developers, use **HashiCorp Vault** for centralized secret management:
@@ -117,12 +126,12 @@ For teams with multiple developers, use **HashiCorp Vault** for centralized secr
 | `VAULT_SECRET_PATH` | Secret path (default: `ollama`) | `ollama` |
 | `VAULT_MOUNT_POINT` | KV mount point (default: `secret`) | `secret` |
 
-When `VAULT_ENABLED=true`, `OLLAMA_API_KEY` is retrieved from Vault with automatic fallback to `.env` if unreachable. See [docs/vault.md](../docs/vault.md) for setup instructions.
+When `VAULT_ENABLED=true`, `OLLAMA_API_KEY` is retrieved following the **Credential Resolution Order** above. See [docs/vault.md](../docs/vault.md) for setup instructions.
 
 **Credential Retrieval Strategy:**
 - `common/llm_factory.py` uses `common/vault.py::get_secret()` for API key retrieval
 - **Vault-first**: Tries Vault if enabled; logs success/failure
-- **Automatic fallback**: Uses `.env` if Vault unreachable or key not found
+- **Automatic fallback**: Uses environment files per **Credential Resolution Order**
 - **Zero code changes**: Projects use `get_llm()` as before — credential source is transparent
 - **Backward compatible**: Vault disabled by default; existing workflows unchanged
 
@@ -140,7 +149,7 @@ Automatic LLM tracing, cost tracking, and performance analytics via **Langfuse**
 **How it works:**
 - Tracing is **always-on by default** — set `LANGFUSE_ENABLED=false` to disable globally
 - Callbacks are automatically attached to all LLM instances (`get_llm()`, `get_chat_llm()`, `get_embeddings()`)
-- Supports Vault integration: keys fetched from Vault path "langfuse" with `.env` fallback
+- Supports Vault integration: keys are resolved using the **Credential Resolution Order** (Vault path "langfuse" when enabled)
 - Graceful degradation: LLMs work normally if Langfuse unavailable or keys missing
 - Zero code changes: existing projects automatically get tracing after configuring `.env`
 
@@ -238,6 +247,12 @@ answer = result["messages"][-1].content
 - Write a clear, specific docstring — the LLM reads it to decide when to call the tool
 - Use typed parameters; avoid `**kwargs`
 - Return a `str` for simple tools; use Pydantic schemas for complex inputs
+
+### When Modifying `common/`
+
+- Add or update tests in `common/tests/` for every behavior change.
+- Ensure coverage for affected modules remains >= 75%.
+- Add any new shared dependency to root `requirements-base.txt`.
 
 ### Project Structure for New Projects
 
@@ -373,7 +388,7 @@ python src/main.py
 - **`common/` import errors** — The project venv must have `ai-agent-common` installed. Run `uv pip install -e ./common` from the repo root targeting the project venv, or re-scaffold using `ai-agent-builder new-project`
 - **Do NOT add `sys.path.insert`** — `common/` is a proper installable package; path hacks are no longer needed or used
 - **`.env` not found** — `llm_factory.py` calls `load_project_env()` which searches upward; ensure `.env` exists at repo root
-- **PR tests failing with ImportError** — The CI workflow installs all project `requirements.txt` files via a loop. If you added a new import, ensure it's listed in your project's `requirements.txt`. For dependencies used by 3+ projects, add to root `requirements-base.txt`. See [Testing Strategy](../docs/TESTING_STRATEGY.md#dependency-management-in-ci) for details.
+- **PR tests failing with ImportError** — The CI workflow installs all project `requirements.txt` files via a loop. If you added a new import, ensure it's listed in your project's `requirements.txt`. If a dependency is used by 3 or more existing projects at the time of the PR, move it to root `requirements-base.txt`. Do not add it preemptively. See [Testing Strategy](../docs/TESTING_STRATEGY.md#dependency-management-in-ci) for details.
 - **Project `.env` usage** — Integration-specific projects (GitHub, Redis, etc.) MAY have a project `.env` file for integration variables only. Common variables (OLLAMA_*, VAULT_*) always live in root `.env`. Simple projects use only root `.env`. Projects automatically load both via `load_project_env()` from `common.utils`.
 - **Wrong LLM class** — Use `get_chat_llm()` (not `get_llm()`) for agents and LangGraph nodes; `OllamaLLM` does not support tool calling
 - **Model not available** — Run `ollama list` to see downloaded models; run `ollama pull <model>` if missing

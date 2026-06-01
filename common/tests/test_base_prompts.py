@@ -1,7 +1,6 @@
 """test_base_prompts.py — Tests for common/prompts/base_prompts.py."""
 
-import pytest
-from langchain_core.prompts import PromptTemplate, ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 
 from common.prompts.base_prompts import QA_PROMPT, RAG_PROMPT, REACT_SYSTEM_PROMPT
 

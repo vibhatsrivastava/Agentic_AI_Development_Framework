@@ -4,14 +4,13 @@ test_vault.py — Comprehensive tests for HashiCorp Vault integration
 
 import pytest
 import os
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 import logging
 
 from common.vault import (
     get_secret,
     clear_cache,
     _get_vault_client,
-    _fetch_from_vault,
     HVAC_AVAILABLE
 )
 
@@ -324,14 +323,14 @@ class TestVaultClientSingleton:
             mock_hvac.return_value = mock_client
             
             # Get client
-            client1 = _get_vault_client()
+            _get_vault_client()
             assert mock_hvac.call_count == 1
             
             # Clear cache
             clear_cache()
             
             # Get client again - should reinitialize
-            client2 = _get_vault_client()
+            _get_vault_client()
             assert mock_hvac.call_count == 2
 
 

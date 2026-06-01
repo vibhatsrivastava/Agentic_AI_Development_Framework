@@ -2,7 +2,7 @@
 
 import pytest
 import requests
-from unittest.mock import Mock, patch, call
+from unittest.mock import Mock, patch
 from langchain_core.messages import AIMessage
 
 from src.main import get_weather, build_agent, ask, main, WMO_CODES

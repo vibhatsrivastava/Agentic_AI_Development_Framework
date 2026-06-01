@@ -1,0 +1,44 @@
+# policies/tags.yaml — Tag requirements per environment
+
+environments:
+  production:
+    required_tags:
+      - name: Environment
+        value: prod
+        enforcement: strict
+        violations:
+          missing: "Instance not enrolled in automated backup schedule (loses backup policy)"
+          incorrect: "Non-production instance in production VPC violates compliance"
+        compliance_frameworks:
+          - framework: SOC2
+            section: "Section 4.2.1 - Data Retention"
+          - framework: HIPAA
+            section: "§164.308(a)(7)(ii)(A)"
+        
+      - name: Backup
+        value: daily
+        enforcement: warn
+        violations:
+          missing: "Instance backup frequency does not meet RPO < 24 hours"
+        
+      - name: Owner
+        value: "^team-.*"
+        enforcement: strict
+        violations:
+          missing: "Cannot determine cost allocation or incident escalation path"
+
+  staging:
+    required_tags:
+      - name: Environment
+        value: staging
+        enforcement: warn
+      
+      - name: Owner
+        value: "^team-.*"
+        enforcement: strict
+
+  development:
+    required_tags:
+      - name: Environment
+        value: dev
+        enforcement: advisory

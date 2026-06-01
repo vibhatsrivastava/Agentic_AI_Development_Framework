@@ -5,8 +5,7 @@ conftest.py — pytest fixtures for 04_github_issue_reporter.
 import sys
 import os
 import pytest
-from unittest.mock import Mock, MagicMock
-from datetime import date
+from unittest.mock import Mock
 
 # Add project root to sys.path to enable "from src.main import ..." imports
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))

@@ -17,7 +17,7 @@ import os
 # Add repo root to Python path to enable imports from common/
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 import pytest
-from unittest.mock import patch, Mock, call
+from unittest.mock import patch, Mock
 from common.llm_factory import get_llm, get_chat_llm, get_embeddings
 
 
@@ -262,9 +262,9 @@ class TestLLMFactoryIntegration:
     ):
         """All factory functions can be called in sequence without errors."""
         # Simulate a typical workflow
-        llm = get_llm()
-        chat = get_chat_llm()
-        embeddings = get_embeddings()
+        get_llm()
+        get_chat_llm()
+        get_embeddings()
         
         assert mock_llm.called
         assert mock_chat.called
@@ -302,7 +302,7 @@ class TestVaultIntegration:
         
         # Now create LLM
         from common.llm_factory import get_llm
-        llm = get_llm()
+        get_llm()
         
         # Verify get_secret was called correctly
         mock_get_secret.assert_called_with(
