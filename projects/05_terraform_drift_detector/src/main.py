@@ -137,6 +137,64 @@ def _recover_drift_from_state_file(state_file_path: Path | str) -> dict:
     }
 
 
+def _format_remediation_plan_from_recovered_drift(
+    resource_id: str,
+    workspace: str,
+    recovered_drift: dict,
+) -> str:
+    """Create a deterministic remediation plan from recovered drift results."""
+    drifted_resources = recovered_drift.get("drifted_resources", [])
+    resource_drift = next(
+        (item for item in drifted_resources if item.get("resource_id") == resource_id),
+        None,
+    )
+
+    if not resource_drift:
+        return (
+            f"No drift details were found for resource `{resource_id}` in workspace "
+            f"`{workspace}`.\n\n"
+            "### Suggested Next Steps\n"
+            f"- Re-run drift scan: `python src/main.py --check --workspace {workspace}`\n"
+            f"- Refresh Terraform state and verify resource: `terraform state show {resource_id}`\n"
+            "- If drift still exists, run `terraform plan` and review proposed changes"
+        )
+
+    drift_type = resource_drift.get("drift_type", "unknown")
+    severity = str(resource_drift.get("severity", "medium")).upper()
+    changes = resource_drift.get("changes") or {}
+
+    if changes:
+        change_lines = [f"- {key}: `{value}`" for key, value in changes.items()]
+        changes_block = "\n".join(change_lines)
+    else:
+        changes_block = "- No detailed change payload available from recovery"
+
+    resource_type = resource_drift.get("resource_type") or "resource"
+    resource_name = resource_drift.get("resource_name") or resource_id
+
+    return f"""### What Drifted
+- Resource: `{resource_type}.{resource_name}` (`{resource_id}`)
+- Drift type: `{drift_type}`
+- Severity: `{severity}`
+
+### Detected Changes
+{changes_block}
+
+### Why It Matters
+- Drift means live infrastructure no longer matches Terraform state or configuration.
+- This can bypass change controls, create compliance risk, and cause unexpected behavior.
+
+### How To Fix
+1. `terraform plan -target={resource_type}.{resource_name}`
+2. `terraform apply -target={resource_type}.{resource_name}`
+3. If the cloud-side change is intentional, update Terraform code to match and then run full `terraform plan`/`terraform apply`.
+
+### Verification Steps
+1. Run `python src/main.py --check --workspace {workspace}` and confirm the resource is no longer drifted.
+2. Run `terraform plan` and confirm there are no unexpected changes.
+3. Validate runtime state in AWS for `{resource_id}`."""
+
+
 def format_drift_report(json_data: dict, workspace: str) -> str:
     """
     Format JSON drift data into markdown report for console display.
@@ -879,6 +937,49 @@ Provide a focused remediation plan with:
         logger.info("Remediation plan generated successfully")
 
     except Exception as e:
+        msg = str(e)
+        m = re.search(r"raw='(.*?)',\s*err=", msg, flags=re.S)
+        if m:
+            raw_payload = m.group(1)
+            logger.warning(
+                "Detected malformed tool-call from model during fix mode; "
+                "attempting deterministic recovery"
+            )
+            parsed_out = None
+            try:
+                parsed_out = _recover_drift_from_state_file(state_file_path)
+                if "error" in parsed_out:
+                    raise ValueError(parsed_out["error"])
+            except Exception:
+                logger.warning(
+                    "Deterministic recovery failed in fix mode; falling back to raw payload extraction",
+                    exc_info=True,
+                )
+                try:
+                    parsed_out = json.loads(_call_tool(compare_resources_raw, raw=raw_payload))
+                    if "error" in parsed_out:
+                        raise ValueError(parsed_out["error"])
+                except Exception:
+                    logger.exception("Fix mode recovery attempt failed")
+                    logger.info(f"TIMING | total_fix_mode (failed): {_time.perf_counter() - _t0:.2f}s")
+                    logger.exception("Agent execution failed")
+                    print(f"❌ Error generating remediation plan: {e}", file=sys.stderr)
+                    sys.exit(1)
+
+            recovery_plan = _format_remediation_plan_from_recovered_drift(
+                resource_id=args.resource,
+                workspace=args.workspace,
+                recovered_drift=parsed_out,
+            )
+            print("\n" + "=" * 80)
+            print(f"## Remediation Plan — {args.resource}")
+            print("=" * 80)
+            print(recovery_plan)
+            print("=" * 80 + "\n")
+            logger.info(f"TIMING | total_fix_mode (recovery): {_time.perf_counter() - _t0:.2f}s")
+            logger.info("Remediation plan generated via recovery path")
+            return
+
         logger.info(f"TIMING | total_fix_mode (failed): {_time.perf_counter() - _t0:.2f}s")
         logger.exception("Agent execution failed")
         print(f"❌ Error generating remediation plan: {e}", file=sys.stderr)

@@ -456,6 +456,51 @@ def test_run_fix_mode_agent_failure(sample_state_file, mocker, capsys):
     assert "Error generating remediation plan" in capsys.readouterr().err
 
 
+def test_run_fix_mode_recovers_from_malformed_tool_call(
+    sample_state_file,
+    mocker,
+    capsys,
+):
+    """Test fix mode recovery path when model emits malformed tool-call JSON."""
+    args = Mock()
+    args.workspace = "prod"
+    args.state_file = str(sample_state_file)
+    args.resource = "i-0123456789abcdef0"
+    args.vector_store_dir = "./vector_store"
+
+    mocker.patch("main.initialize_vector_store", return_value=Mock())
+    mocker.patch("main.get_retriever", return_value=Mock())
+    mocker.patch(
+        "main._recover_drift_from_state_file",
+        return_value={
+            "total_drifted": 1,
+            "drifted_resources": [
+                {
+                    "resource_id": "i-0123456789abcdef0",
+                    "resource_type": "aws_instance",
+                    "resource_name": "drift_test",
+                    "severity": "critical",
+                    "drift_type": "tags_modified",
+                    "changes": {"removed_tags": ["Environment", "ManagedBy"]},
+                }
+            ],
+        },
+    )
+
+    mock_agent = Mock()
+    mock_agent.invoke.side_effect = RuntimeError(
+        "error parsing tool call: raw='{\"state_resources\":[],\"cloud_resources\":[]}', err=boom (status code: 500)"
+    )
+    mocker.patch("main.create_agent", return_value=mock_agent)
+
+    run_fix_mode(args)
+
+    captured = capsys.readouterr()
+    assert "Remediation Plan" in captured.out
+    assert "How To Fix" in captured.out
+    assert "i-0123456789abcdef0" in captured.out
+
+
 def test_main_cli_routes_check_mode(monkeypatch, mocker):
     """Test CLI routing into check mode."""
     mock_run_check = mocker.patch("main.run_check_mode")
