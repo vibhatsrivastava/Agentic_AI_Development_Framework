@@ -106,81 +106,33 @@ def create_github_issue(
     assignees: Optional[List[str]] = None,
     token: Optional[str] = None
 ) -> str:
-    """
-    Create a new GitHub issue with metadata.
+    """Create a GitHub issue with recommendations for resolving drift."""
+    headers = get_github_headers(token)
     
-    Args:
-        owner: Repository owner (e.g., "vibhatsrivastava")
-        repo: Repository name (e.g., "infrastructure-state")
-        title: Issue title
-        body: Issue body (markdown supported)
-        labels: List of label names to apply
-        assignees: List of GitHub usernames to assign (with or without @ prefix)
-        token: GitHub personal access token (uses GITHUB_TOKEN env var if not provided)
+    # Append recommendations to the issue body
+    recommendation_section = """
+## Recommendations
+
+1. **Review Terraform Configuration**: Ensure that the Terraform configuration files are up-to-date and match the current state of the infrastructure.
+2. **Run Terraform Plan**: Execute `terraform plan` to identify any potential drift before making changes.
+3. **Apply Changes**: If necessary, apply the changes using `terraform apply`.
+4. **Verify Changes**: After applying changes, verify that the infrastructure is in sync with the desired state.
+
+For more details, refer to the [Terraform documentation](https://www.terraform.io/docs/cli/commands.html).
+"""
+    body += recommendation_section
     
-    Returns:
-        JSON string with issue details (number, url, created_at) or error message
-    """
-    try:
-        headers = get_github_headers(token)
-
-        # Validate labels against repository labels to avoid 422 on unknown labels.
-        if labels:
-            existing_labels = _get_existing_repo_labels(owner, repo, headers)
-            if existing_labels:
-                filtered_labels = [label for label in labels if label in existing_labels]
-                dropped_labels = [label for label in labels if label not in existing_labels]
-                for dropped in dropped_labels:
-                    logger.warning(f"Skipping unknown label '{dropped}' for {owner}/{repo}")
-                labels = filtered_labels
-
-        # Validate assignees against GitHub assignability for this repository.
-        assignees = _filter_valid_assignees(owner, repo, assignees, headers)
-        
-        payload = {
-            "title": title,
-            "body": body,
-        }
-        
-        if labels:
-            payload["labels"] = labels
-        if assignees:
-            payload["assignees"] = assignees
-        
-        logger.info(f"Creating GitHub issue in {owner}/{repo}: {title}")
-        resp = requests.post(
-            f"https://api.github.com/repos/{owner}/{repo}/issues",
-            headers=headers,
-            json=payload,
-            timeout=10,
-        )
-        resp.raise_for_status()
-        result = resp.json()
-        
-        logger.info(f"Successfully created issue #{result['number']}: {result['html_url']}")
-        return json.dumps({
-            "success": True,
-            "issue_number": result["number"],
-            "issue_url": result["html_url"],
-            "created_at": result.get("created_at"),
-        }, indent=2)
-        
-    except requests.exceptions.HTTPError as e:
-        error_msg = f"GitHub API error: {e.response.status_code} - {e.response.reason}"
-        if e.response.status_code == 401:
-            error_msg += ". Invalid GITHUB_TOKEN or token expired."
-        elif e.response.status_code == 403:
-            error_msg += ". Insufficient permissions. Ensure GITHUB_TOKEN has 'repo' scope."
-        elif e.response.status_code == 404:
-            error_msg += f". Repository {owner}/{repo} not found or inaccessible."
-        elif e.response.status_code == 422:
-            error_msg += ". Validation failed. Check assignees exist and labels are valid."
-        logger.error(error_msg)
-        return json.dumps({"success": False, "error": error_msg})
-    except Exception as e:
-        error_msg = f"Error creating GitHub issue: {str(e)}"
-        logger.error(error_msg)
-        return json.dumps({"success": False, "error": error_msg})
+    # Create the issue
+    url = f"https://api.github.com/repos/{owner}/{repo}/issues"
+    response = requests.post(url, headers=headers, json={"title": title, "body": body, "labels": labels, "assignees": assignees})
+    
+    if response.status_code == 201:
+        issue_number = response.json().get("number")
+        logger.info(f"Created GitHub issue {issue_number} for resource ID: {resource_id}")
+        return str(issue_number)
+    else:
+        logger.error(f"Failed to create GitHub issue: {response.text}")
+        raise Exception(f"Failed to create GitHub issue: {response.status_code}")
 
 
 def search_existing_issues(
