@@ -12,7 +12,7 @@ from common.cache import get_global_cache
 
 # Langfuse tracing imports
 try:
-    from langfuse.decorators import observe, langfuse_context
+    from langfuse.decorators import langfuse_context
     LANGFUSE_AVAILABLE = True
 except ImportError:
     LANGFUSE_AVAILABLE = False
@@ -54,90 +54,102 @@ def create_policy_analysis_tool(retriever: BaseRetriever):
         Returns:
             JSON string with enriched drift analysis including policy violations
         """
-        if isinstance(drift_summary, dict):
-            drift_data = drift_summary
-        elif isinstance(drift_summary, str):
-            try:
-                drift_data = json.loads(drift_summary)
-            except json.JSONDecodeError as e:
-                return json.dumps({"error": f"Invalid JSON input: {str(e)}"})
-        else:
-            return json.dumps({
-                "error": "Invalid drift_summary input type. Expected JSON string or dictionary."
-            })
-        
-        if "error" in drift_data:
-            return json.dumps({"error": f"Drift comparison error: {drift_data['error']}"})
-        
-        drifted_resources = drift_data.get("drifted_resources", [])
-        
-        if not drifted_resources:
-            return json.dumps({
-                "total_analyzed": 0,
-                "analysis": "No drift detected. All resources match Terraform state."
-            })
-        
-        # Analyze each drifted resource
-        enriched_reports = []
-        llm = llm_factory.get_chat_llm()
-        
-        for drift in drifted_resources:
-            try:
-                # Construct RAG query from drift context
-                query = _build_policy_query(drift)
-                
-                # Retrieve relevant policy chunks with caching
-                policy_docs = _get_cached_policy_docs(retriever, query, drift)
-                policy_context = _format_policy_documents(policy_docs)
-                
-                # LLM analysis with retrieved policies (with caching)
-                analysis_prompt = _build_analysis_prompt(drift, policy_context)
-                analysis_response = _get_cached_llm_response(llm, analysis_prompt, drift, policy_docs)
-                
-                # Parse LLM response
-                enriched_reports.append({
-                    "resource": {
-                        "id": drift.get("resource_id"),
-                        "type": drift.get("resource_type"),
-                        "name": drift.get("resource_name"),
-                    },
-                    "drift": {
-                        "type": drift.get("drift_type"),
-                        "severity": drift.get("severity"),
-                        "changes": drift.get("changes"),
-                    },
-                    "policy_analysis": analysis_response.content,
-                    "retrieved_policies": [
-                        {
-                            "source": doc.metadata.get("source", "unknown"),
-                            "content_preview": doc.page_content[:200] + "..."
-                        }
-                        for doc in policy_docs[:3]  # Include top 3 policy references
-                    ],
+        try:
+            if isinstance(drift_summary, dict):
+                drift_data = drift_summary
+            elif isinstance(drift_summary, str):
+                try:
+                    drift_data = json.loads(drift_summary)
+                except json.JSONDecodeError as e:
+                    return json.dumps({"error": f"Invalid JSON input: {str(e)}"})
+            else:
+                return json.dumps({
+                    "error": "Invalid drift_summary input type. Expected JSON string or dictionary."
                 })
             
-            except Exception as e:
-                logger.exception(f"Failed to analyze drift for resource {drift.get('resource_id')}")
-                enriched_reports.append({
-                    "resource": {
-                        "id": drift.get("resource_id"),
-                        "type": drift.get("resource_type"),
-                    },
-                    "error": f"Analysis failed: {str(e)}"
+            if "error" in drift_data:
+                return json.dumps({"error": f"Drift comparison error: {drift_data['error']}"})
+            
+            drifted_resources = drift_data.get("drifted_resources", [])
+            
+            if not drifted_resources:
+                return json.dumps({
+                    "total_analyzed": 0,
+                    "analysis": "No drift detected. All resources match Terraform state."
                 })
+            
+            # Analyze each drifted resource
+            enriched_reports = []
+            llm = llm_factory.get_chat_llm()
+            
+            for drift in drifted_resources:
+                try:
+                    # Construct RAG query from drift context
+                    query = _build_policy_query(drift)
+                    
+                    # Retrieve relevant policy chunks with caching
+                    policy_docs = _get_cached_policy_docs(retriever, query, drift)
+                    policy_context = _format_policy_documents(policy_docs)
+                    
+                    # LLM analysis with retrieved policies (with caching)
+                    analysis_prompt = _build_analysis_prompt(drift, policy_context)
+                    analysis_response = _get_cached_llm_response(llm, analysis_prompt, drift, policy_docs)
+                    
+                    # Parse LLM response
+                    enriched_reports.append({
+                        "resource": {
+                            "id": drift.get("resource_id"),
+                            "type": drift.get("resource_type"),
+                            "name": drift.get("resource_name"),
+                        },
+                        "drift": {
+                            "type": drift.get("drift_type"),
+                            "severity": drift.get("severity"),
+                            "changes": drift.get("changes"),
+                        },
+                        "is_data_source": drift.get("is_data_source", False),
+                        "policy_analysis": analysis_response.content,
+                        "retrieved_policies": [
+                            {
+                                "source": doc.metadata.get("source", "unknown"),
+                                "content_preview": doc.page_content[:200] + "..."
+                            }
+                            for doc in policy_docs[:3]  # Include top 3 policy references
+                        ],
+                    })
+                
+                except Exception as e:
+                    logger.exception(f"Failed to analyze drift for resource {drift.get('resource_id')}")
+                    enriched_reports.append({
+                        "resource": {
+                            "id": drift.get("resource_id"),
+                            "type": drift.get("resource_type"),
+                        },
+                        "is_data_source": drift.get("is_data_source", False),
+                        "error": f"Analysis failed: {str(e)}"
+                    })
 
-        logger.info(f"Completed policy analysis for {len(enriched_reports)} resources")
+            logger.info(f"Completed policy analysis for {len(enriched_reports)} resources")
 
-        # Log cache statistics
-        rag_stats = _rag_cache.get_stats()
-        llm_stats = _llm_cache.get_stats()
-        logger.info(f"RAG cache: {rag_stats['hit_rate']} hit rate ({rag_stats['hits']} hits, {rag_stats['misses']} misses)")
-        logger.info(f"LLM cache: {llm_stats['hit_rate']} hit rate ({llm_stats['hits']} hits, {llm_stats['misses']} misses)")
+            # Log cache statistics
+            rag_stats = _rag_cache.get_stats()
+            llm_stats = _llm_cache.get_stats()
+            logger.info(f"RAG cache: {rag_stats['hit_rate']} hit rate ({rag_stats['hits']} hits, {rag_stats['misses']} misses)")
+            logger.info(f"LLM cache: {llm_stats['hit_rate']} hit rate ({llm_stats['hits']} hits, {llm_stats['misses']} misses)")
 
-        return json.dumps({
-            "total_analyzed": len(enriched_reports),
-            "enriched_drift_reports": enriched_reports
-        }, indent=2)
+            return json.dumps({
+                "total_analyzed": len(enriched_reports),
+                "enriched_drift_reports": enriched_reports
+            }, indent=2)
+        
+        except Exception as outer_e:
+            # Outermost exception handler ensures tool never fails the agent
+            logger.error(f"Policy analysis tool encountered unexpected error: {outer_e}")
+            return json.dumps({
+                "total_analyzed": 0,
+                "error": f"Policy analysis tool failed: {str(outer_e)}",
+                "enriched_drift_reports": []
+            })
 
     return analyze_drift_with_policies
         
@@ -181,7 +193,11 @@ def _get_cached_policy_docs(retriever: BaseRetriever, query: str, drift: dict) -
         except Exception:
             pass
     
-    policy_docs = retriever.get_relevant_documents(query)  # k set at retriever initialization
+    try:
+        policy_docs = retriever.invoke({"input": str(query)})  # k set at retriever initialization
+    except Exception as e:
+        logger.warning(f"Failed to retrieve policy documents: {e}")
+        policy_docs = []  # Return empty list on retrieval failure
     
     # Cache result
     _rag_cache.put(cache_key, policy_docs)
@@ -348,24 +364,3 @@ Provide a structured analysis in the following format:
 **Verification Steps:**
 [List steps to verify the fix was successful (AWS CLI commands, manual checks)]
 """
-
-
-def _build_analysis_prompt_compact(drift: dict, policy_context: str) -> str:
-    """
-    Build a compact LLM prompt for batch analysis (used when many resources drifted).
-    
-    Args:
-        drift: Drift dictionary
-        policy_context: Formatted policy documents
-    
-    Returns:
-        Compact analysis prompt
-    """
-    return f"""Analyze drift for {drift.get('resource_type')} {drift.get('resource_id')}:
-
-Drift: {drift.get('drift_type')} - {drift.get('changes')}
-
-Policies:
-{policy_context}
-
-Provide: violation, impact, remediation command."""

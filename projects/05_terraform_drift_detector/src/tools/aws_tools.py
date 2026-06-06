@@ -11,6 +11,24 @@ logger = get_logger(__name__)
 rate_limiter = TokenBucketRateLimiter(tokens_per_second=2, bucket_capacity=5)
 
 
+def _summarize_security_group_rules(rules: list, rule_type: str = "ingress", max_samples: int = 3) -> dict:
+    """
+    Summarize security group rules to reduce output size.
+    Returns count, samples, and indication if there are more rules.
+    
+    Phase 2A optimization: Reduces ~150 KB of detailed rules to ~5 KB summary.
+    """
+    total_count = len(rules)
+    samples = rules[:max_samples]
+    
+    return {
+        "total_count": total_count,
+        "sample_count": len(samples),
+        "samples": samples,
+        "note": f"Showing {len(samples)} of {total_count} {rule_type} rules (full list in AWS)" if total_count > max_samples else None
+    }
+
+
 @tool
 def fetch_cloud_resources(resource_ids: str, resource_type: str) -> str:
     """
@@ -134,8 +152,7 @@ def _fetch_ec2_instances(instance_ids: list[str], access_key: str,
     result_json = json.dumps({
         "resource_type": "aws_instance",
         "resources": instances
-    }, indent=2)
-    print("[DEBUG] _fetch_ec2_instances JSON output:\n" + result_json)
+    })
     return result_json
 
 
@@ -203,7 +220,7 @@ def _fetch_ssm_parameters(parameter_names: list[str], access_key: str,
     return json.dumps({
         "resource_type": "aws_ssm_parameter",
         "resources": parameters
-    }, indent=2)
+    })
 
 
 def _fetch_rds_instances(db_instance_ids: list[str], access_key: str,
@@ -241,13 +258,7 @@ def _fetch_rds_instances(db_instance_ids: list[str], access_key: str,
     return json.dumps({
         "resource_type": "aws_db_instance",
         "resources": instances
-    }, indent=2)
-
-
-def _fetch_security_groups(sg_ids: list[str], access_key: str,
-                          secret_key: str, region: str) -> str:
-    """Fetch security group details from AWS."""
-    rate_limiter.acquire()
+    })
     
     ec2_client = boto3.client(
         "ec2",
@@ -260,13 +271,17 @@ def _fetch_security_groups(sg_ids: list[str], access_key: str,
     
     security_groups = []
     for sg in response.get("SecurityGroups", []):
+        # Phase 2A: Summarize rules instead of including full details (~150 KB → ~5 KB)
+        ingress_rules = sg.get("IpPermissions", [])
+        egress_rules = sg.get("IpPermissionsEgress", [])
+        
         security_groups.append({
             "id": sg["GroupId"],
             "name": sg.get("GroupName"),
             "description": sg.get("Description"),
             "vpc_id": sg.get("VpcId"),
-            "ingress": sg.get("IpPermissions", []),
-            "egress": sg.get("IpPermissionsEgress", []),
+            "ingress": _summarize_security_group_rules(ingress_rules, "ingress"),
+            "egress": _summarize_security_group_rules(egress_rules, "egress"),
             "tags": {tag["Key"]: tag["Value"] for tag in sg.get("Tags", [])},
         })
     
@@ -274,7 +289,7 @@ def _fetch_security_groups(sg_ids: list[str], access_key: str,
     return json.dumps({
         "resource_type": "aws_security_group",
         "resources": security_groups
-    }, indent=2)
+    })
 
 
 def _fetch_s3_buckets(bucket_names: list[str], access_key: str,
@@ -322,4 +337,4 @@ def _fetch_s3_buckets(bucket_names: list[str], access_key: str,
     return json.dumps({
         "resource_type": "aws_s3_bucket",
         "resources": buckets
-    }, indent=2)
+    })

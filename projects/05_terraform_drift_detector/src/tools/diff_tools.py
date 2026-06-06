@@ -125,6 +125,11 @@ def _compare_resources_impl(state_data: dict, cloud_data: dict) -> dict:
     drifted = []
     # Compare each state resource with its cloud counterpart
     for s_res in state_list:
+        # Skip data sources — they are read-only and computed at runtime
+        if s_res.get("is_data_source", False):
+            logger.info(f"Skipping data source comparison: {s_res.get('type')}.{s_res.get('name')} (read-only)")
+            continue
+        
         resource_id = s_res.get("id")
         state_type = s_res.get("type")
         if cloud_types and state_type not in cloud_types:
@@ -147,14 +152,13 @@ def _compare_resources_impl(state_data: dict, cloud_data: dict) -> dict:
                 "changes": {
                     "details": "Resource deleted outside Terraform"
                 },
+                "is_data_source": s_res.get("is_data_source", False),
             })
             continue
         # Always use attributes['tags'] if present, else fallback to top-level 'tags'
         state_tags = s_res.get("attributes", {}).get("tags", s_res.get("tags", {}))
         cloud_tags = c_res.get("attributes", {}).get("tags", c_res.get("tags", {}))
-        print(f"[DEBUG] Comparing tags for resource {resource_id}:\n  state_tags={state_tags}\n  cloud_tags={cloud_tags}")
         tag_drift = _compare_tags(state_tags, cloud_tags)
-        print(f"[DEBUG] tag_drift for resource {resource_id}: {tag_drift}")
         if tag_drift:
             drifted.append({
                 "resource_id": resource_id,
@@ -163,6 +167,7 @@ def _compare_resources_impl(state_data: dict, cloud_data: dict) -> dict:
                 "drift_type": "tags_modified",
                 "severity": _classify_tag_drift_severity(tag_drift),
                 "changes": tag_drift,
+                "is_data_source": s_res.get("is_data_source", False),
             })
         # Compare attributes (excluding tags and timestamps)
         attr_drift = _compare_attributes(
@@ -178,6 +183,7 @@ def _compare_resources_impl(state_data: dict, cloud_data: dict) -> dict:
                 "drift_type": "attributes_changed",
                 "severity": _classify_attribute_drift_severity(attr_drift, s_res.get("type")),
                 "changes": attr_drift,
+                "is_data_source": s_res.get("is_data_source", False),
             })
     # Check for resources in cloud but not in state (created outside Terraform)
     state_ids = {r.get("id") for r in state_list if r.get("id")}
@@ -287,14 +293,7 @@ def compare_resources(
         state_resources = inner_payload.get("state_resources")
         cloud_resources = inner_payload.get("cloud_resources")
 
-    # Debug: show incoming raw payload/state strings when present
-    try:
-        if isinstance(payload, str):
-            print(f"[DEBUG] incoming payload string (len={len(payload)}): {payload[:500]}")
-        if isinstance(state_resources, str):
-            print(f"[DEBUG] incoming state_resources string (len={len(state_resources)}): {state_resources[:500]}")
-    except Exception:
-        pass
+    # Debug: show incoming raw payload/state strings when present (removed for size optimization)
 
     # If payload or state_resources are raw strings that may contain both
     # `state_resources` and `cloud_resources`, try a best-effort parse before
@@ -379,19 +378,13 @@ def compare_resources(
             if ext_state is not None:
                 state_resources = ext_state
 
-    # Strict input validation and debug print
-    print(f"[DEBUG] compare_resources received state_resources type: {type(state_resources)}, cloud_resources type: {type(cloud_resources)}")
+    # Strict input validation
     if state_resources is None or cloud_resources is None:
         error_msg = "compare_resources requires both 'state_resources' and 'cloud_resources'"
         logger.error(error_msg)
         return json.dumps({"error": error_msg})
 
-    # Debug print the raw input for payload validation
-    try:
-        import pprint
-        print("[DEBUG] RAW compare_resources input (truncated):\n" + pprint.pformat({"state_resources": state_resources, "cloud_resources": cloud_resources})[:2000])
-    except Exception:
-        print("[DEBUG] RAW compare_resources input: <unprintable>")
+    # Validation debugging removed for size optimization
 
     # Helper to filter resource fields
     def filter_resource_fields(resource):
@@ -513,8 +506,7 @@ def compare_resources(
     state_dict = sanitize_resources_dict(state_dict)
     cloud_dict = sanitize_resources_dict(cloud_dict)
     result = _compare_resources_impl(state_dict, cloud_dict)
-    json_result = json.dumps(result, indent=2)
-    print("[DEBUG] FINAL compare_resources JSON output (to LLM):\n" + json_result)
+    json_result = json.dumps(result)
     return json_result
 
 
@@ -631,7 +623,7 @@ def compare_resources_raw(raw: str) -> str:
 
     try:
         result = _compare_resources_impl(state, cloud)
-        return json.dumps(result, indent=2)
+        return json.dumps(result)
     except Exception as e:
         logger.exception("Error running comparator on extracted payload")
         return json.dumps({"error": f"Comparator failure: {str(e)}"})

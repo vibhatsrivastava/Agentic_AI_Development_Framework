@@ -9,18 +9,43 @@ logger = get_logger(__name__)
 
 
 def _matches_existing_drift_issue(issue: Dict, resource_id: str, drift_type: Optional[str] = None) -> bool:
-    """Return True when an open issue already tracks the same drifted resource."""
+    """
+    Return True when an open issue already tracks the same drifted resource.
+    
+    Uses resource_id as the primary match key (must match), and drift_type as secondary.
+    Handles backticks and special formatting variations.
+    """
+    if not resource_id:
+        return False
+    
     title = (issue.get("title") or "").lower()
     body = (issue.get("body") or "").lower()
-    resource_id_lower = (resource_id or "").lower()
-    drift_type_lower = (drift_type or "").lower()
-
-    if resource_id_lower and resource_id_lower not in title and resource_id_lower not in body:
+    
+    # Normalize resource_id: remove backticks and extra whitespace
+    resource_id_normalized = resource_id.strip("`").strip().lower()
+    
+    # Primary check: resource_id MUST be present (it's unique per resource)
+    # Check both with and without backticks to handle formatting variations
+    resource_found = (
+        resource_id_normalized in title or 
+        resource_id_normalized in body or
+        f"`{resource_id_normalized}`" in body or
+        f"**resource id:** `{resource_id_normalized}`" in body
+    )
+    
+    if not resource_found:
         return False
-
-    if drift_type_lower and drift_type_lower not in title and drift_type_lower not in body:
-        return False
-
+    
+    # Secondary check: if drift_type provided, it should also match (but not required for match)
+    # This makes the matching more flexible for variations in drift type formatting
+    if drift_type:
+        drift_type_normalized = drift_type.strip().lower()
+        drift_found = drift_type_normalized in title or drift_type_normalized in body
+        # If drift type doesn't match but resource_id does, still consider it a match
+        # (drift detection may have detected multiple drift types for same resource)
+        if not drift_found:
+            logger.debug(f"Resource {resource_id} found but drift_type '{drift_type}' not matching in issue #{issue.get('number')}")
+    
     return True
 
 
@@ -106,7 +131,7 @@ def create_github_issue(
     assignees: Optional[List[str]] = None,
     token: Optional[str] = None
 ) -> str:
-    """Create a GitHub issue with recommendations for resolving drift."""
+    """Create a GitHub issue with recommendations for resolving drift. Returns JSON response."""
     headers = get_github_headers(token)
     
     # Append recommendations to the issue body
@@ -122,17 +147,36 @@ For more details, refer to the [Terraform documentation](https://www.terraform.i
 """
     body += recommendation_section
     
+    # Validate and filter assignees (strip @ symbol, check if assignable)
+    filtered_assignees = _filter_valid_assignees(owner, repo, assignees, headers)
+    
     # Create the issue
     url = f"https://api.github.com/repos/{owner}/{repo}/issues"
-    response = requests.post(url, headers=headers, json={"title": title, "body": body, "labels": labels, "assignees": assignees})
+    payload = {"title": title, "body": body}
+    if labels:
+        payload["labels"] = labels
+    if filtered_assignees:
+        payload["assignees"] = filtered_assignees
+    
+    response = requests.post(url, headers=headers, json=payload)
     
     if response.status_code == 201:
-        issue_number = response.json().get("number")
-        logger.info(f"Created GitHub issue {issue_number} for resource ID: {resource_id}")
-        return str(issue_number)
+        issue_data = response.json()
+        issue_number = issue_data.get("number")
+        issue_url = issue_data.get("html_url")
+        logger.info(f"Created GitHub issue {issue_number}")
+        return json.dumps({
+            "success": True,
+            "issue_number": issue_number,
+            "issue_url": issue_url,
+        }, indent=2)
     else:
         logger.error(f"Failed to create GitHub issue: {response.text}")
-        raise Exception(f"Failed to create GitHub issue: {response.status_code}")
+        return json.dumps({
+            "success": False,
+            "error": f"Failed to create GitHub issue: {response.status_code}",
+            "response": response.text,
+        }, indent=2)
 
 
 def search_existing_issues(

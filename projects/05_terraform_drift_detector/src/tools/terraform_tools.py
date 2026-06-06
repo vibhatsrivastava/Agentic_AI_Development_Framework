@@ -58,11 +58,17 @@ def parse_terraform_state(file_path: str) -> str:
     except Exception as e:
         return json.dumps({"error": f"Failed to read state file: {str(e)}"})
     
-    # Extract resources
+    # Extract managed resources and identify data sources
+    # Data sources are read-only and should not trigger drift issues
+    # In Terraform state files, data sources have "mode": "data" in the resources array
     resources = []
     for resource in state.get("resources", []):
         resource_type = resource.get("type", "unknown")
         resource_name = resource.get("name", "unknown")
+        resource_mode = resource.get("mode", "managed")  # Default to "managed" if not specified
+        
+        # Check if this resource is actually a data source (mode == "data")
+        is_data_source = resource_mode == "data"
         
         for instance in resource.get("instances", []):
             attributes = instance.get("attributes", {})
@@ -80,13 +86,18 @@ def parse_terraform_state(file_path: str) -> str:
                 "id": relevant_attrs.get("id", "unknown"),
                 "tags": relevant_attrs.get("tags", {}),
                 "attributes": relevant_attrs,
+                "is_data_source": is_data_source,
             })
     
-    logger.info(f"Parsed {len(resources)} resources from state file")
+    # Count data sources for logging
+    data_source_count = sum(1 for r in resources if r.get("is_data_source", False))
+    managed_resource_count = len(resources) - data_source_count
+    
+    logger.info(f"Parsed {len(resources)} resources from state file: {managed_resource_count} managed, {data_source_count} data sources")
     result = json.dumps({
         "total_resources": len(resources),
         "resources": resources
-    }, indent=2)
+    })
     
     # Cache result
     if cache_key:

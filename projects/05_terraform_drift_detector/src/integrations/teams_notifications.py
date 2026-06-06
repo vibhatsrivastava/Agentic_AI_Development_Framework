@@ -236,6 +236,7 @@ def send_drift_summary_notification(
 ) -> bool:
     """
     Send Microsoft Teams summary notification for drift detection run.
+    Sends ONE notification only (no duplicates).
     
     Args:
         owner: GitHub repository owner
@@ -342,8 +343,8 @@ def send_drift_summary_notification(
             color=color,
         )
         
-        # Send notification, then fall back to a legacy connector card for
-        # webhook configurations that do not accept adaptive-card envelopes.
+        # Send notification with adaptive card (primary format)
+        # Only use fallback if adaptive card fails with HTTP error
         logger.info("Sending Teams drift summary notification")
         try:
             resp = requests.post(
@@ -358,37 +359,49 @@ def send_drift_summary_notification(
                 logger.info("Successfully sent Teams summary notification")
                 return True
 
-            logger.warning(
-                "Teams adaptive-card webhook returned unexpected response: %s. Retrying with legacy connector card.",
+            # If adaptive card returns unexpected but successful status, try legacy format
+            logger.info(
+                "Teams adaptive-card returned success but unexpected response format: %s. Trying legacy connector card format.",
                 resp.text,
             )
+            # Fall through to legacy attempt below
+        except requests.exceptions.HTTPError as e:
+            # Only fall back on HTTP errors (not on transport errors)
+            logger.warning(
+                "Teams adaptive-card webhook failed: %s - %s. Retrying with legacy connector card format.",
+                e.response.status_code if e.response else "Unknown",
+                e.response.reason if e.response else "Unknown",
+            )
+            # Fall through to legacy attempt below
+        except requests.exceptions.RequestException as e:
+            # For transport errors, don't retry with legacy format; fail immediately
+            logger.error(f"Teams webhook request failed (network/timeout): {e}")
+            return False
         except Exception as e:
-            if isinstance(e, requests.exceptions.HTTPError) and e.response is not None:
-                logger.warning(
-                    "Teams adaptive-card webhook failed: %s - %s. Retrying with legacy connector card.",
-                    e.response.status_code,
-                    e.response.reason,
-                )
-            else:
-                logger.warning(
-                    "Teams adaptive-card webhook failed: %s. Retrying with legacy connector card.",
-                    e,
-                )
+            # For other errors, fail immediately
+            logger.error(f"Unexpected error sending Teams notification: {e}")
+            return False
 
-        resp = requests.post(
-            webhook_url,
-            headers={"Content-Type": "application/json"},
-            json=fallback_card,
-            timeout=10
-        )
-        resp.raise_for_status()
+        # Fallback: try legacy connector card format (only if adaptive card didn't succeed)
+        try:
+            logger.info("Attempting to send Teams summary notification using legacy connector card format")
+            resp = requests.post(
+                webhook_url,
+                headers={"Content-Type": "application/json"},
+                json=fallback_card,
+                timeout=10
+            )
+            resp.raise_for_status()
 
-        if _teams_webhook_succeeded(resp):
-            logger.info("Successfully sent Teams summary notification via legacy connector card")
-            return True
+            if _teams_webhook_succeeded(resp):
+                logger.info("Successfully sent Teams summary notification via legacy connector card")
+                return True
 
-        logger.warning(f"Teams webhook returned unexpected response: {resp.text}")
-        return False
+            logger.warning(f"Teams legacy connector card returned unexpected response: {resp.text}")
+            return False
+        except Exception as e:
+            logger.error(f"Failed to send Teams notification (both adaptive and legacy formats): {e}")
+            return False
         
     except requests.exceptions.HTTPError as e:
         logger.error(f"Teams webhook HTTP error: {e.response.status_code} - {e.response.reason}")

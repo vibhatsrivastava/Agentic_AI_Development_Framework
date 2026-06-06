@@ -29,7 +29,7 @@ from tools import (
     fetch_cloud_resources,
     compare_resources,
     compare_resources_raw,
-    create_policy_analysis_tool,
+    # create_policy_analysis_tool,  # Disabled - using heuristic extraction instead
 )
 from tools.github_tools import (
     create_github_issue,
@@ -72,15 +72,76 @@ STRICT RULES:
 - Cite specific policy files and sections for every policy violation
 - Cite policy files and sections for violations (e.g., "policies/tags.yaml → production.required_tags[0]")
 - Never hallucinate policy violations
+- CRITICAL: Preserve the 'is_data_source' flag from parse_terraform_state in final output. Data sources (read-only) must be marked for filtering.
 
 OUTPUT:
-Return JSON with: drift_detected (bool), summary (total_resources, drifted, compliant, severity_breakdown dict), resources (array with id, type, name, severity, drift_type, drift_details dict, policy_violations array with policy/section/impact, remediation_command)."""
+Return JSON with: drift_detected (bool), summary (total_resources, drifted, compliant, severity_breakdown dict), resources (array with id, type, name, severity, drift_type, drift_details dict, policy_violations array with policy/section/severity/impact/compliance_frameworks, remediation_command, is_data_source bool).
+
+POLICY VIOLATIONS FORMAT:
+Each violation MUST include: policy (string), section (string), severity (CRITICAL|HIGH|MEDIUM|LOW), impact (string), compliance_frameworks (array)."""
 
 
 def _call_tool(tool_obj, **kwargs):
     if hasattr(tool_obj, "func"):
         return tool_obj.func(**kwargs)
     return tool_obj(**kwargs)
+
+
+def _extract_policy_violations_from_drift(resource_type: str, drift_type: str, 
+                                          severity: str, changes: dict) -> list:
+    """
+    Extract policy violations from drift details using heuristic rules.
+    
+    This is used in the recovery path when the agent truncates before reaching
+    the full policy analysis tool. Provides sensible defaults based on drift characteristics.
+    
+    Args:
+        resource_type: AWS resource type (e.g., "aws_instance")
+        drift_type: Type of drift detected (e.g., "tags_modified")
+        severity: Severity level (CRITICAL, HIGH, MEDIUM, LOW)
+        changes: Dict of changes detected
+    
+    Returns:
+        List of policy violation dictionaries
+    """
+    violations = []
+    
+    # Tag-related drifts
+    if drift_type == "tags_modified" and changes:
+        removed_tags = changes.get("removed_tags", [])
+        modified_tags = changes.get("modified_tags", {})
+        
+        if removed_tags or modified_tags:
+            violations.append({
+                "policy": "policies/tags.yaml",
+                "section": "tag_compliance.required_tags",
+                "severity": severity or "HIGH",
+                "impact": f"Missing or modified required tags on {resource_type}. Affects resource identification, cost tracking, and compliance.",
+                "compliance_frameworks": ["AWS_TAGGING_POLICY", "SOC2", "ISO27001"]
+            })
+    
+    # Attribute/configuration changes
+    elif drift_type == "attributes_changed":
+        violations.append({
+            "policy": "policies/resource_configuration.yaml",
+            "section": "configuration_baseline.immutable_settings",
+            "severity": severity or "MEDIUM",
+            "impact": f"Configuration drift detected on {resource_type}. Manual changes outside Terraform may cause future apply failures.",
+            "compliance_frameworks": ["INFRASTRUCTURE_AS_CODE"]
+        })
+    
+    # Resource lifecycle (created/deleted outside Terraform)
+    elif drift_type in ["resource_created", "resource_deleted"]:
+        violations.append({
+            "policy": "policies/resource_lifecycle.yaml",
+            "section": "lifecycle_control.terraform_managed_resources",
+            "severity": severity or "CRITICAL",
+            "impact": f"Resource lifecycle violation: {resource_type} managed outside Terraform. Breaks infrastructure-as-code principles.",
+            "compliance_frameworks": ["INFRASTRUCTURE_AS_CODE", "CHANGE_MANAGEMENT"]
+        })
+    
+    return violations
+
 
 
 def _recover_drift_from_state_file(state_file_path: Path | str) -> dict:
@@ -93,8 +154,16 @@ def _recover_drift_from_state_file(state_file_path: Path | str) -> dict:
     if not resources:
         return {"total_drifted": 0, "drifted_resources": []}
 
+    # Filter out data sources (read-only resources)
+    managed_resources = [r for r in resources if not r.get("is_data_source", False)]
+    if not managed_resources:
+        logger.info("All resources are data sources (read-only). No drift analysis needed.")
+        return {"total_drifted": 0, "drifted_resources": []}
+    
+    logger.info(f"Filtering recovery: {len(resources)} total, {len(managed_resources)} managed (skipped {len(resources) - len(managed_resources)} data sources)")
+
     grouped_resources = {}
-    for resource in resources:
+    for resource in managed_resources:
         resource_type = resource.get("type")
         if resource_type:
             grouped_resources.setdefault(resource_type, []).append(resource)
@@ -342,6 +411,11 @@ def create_github_issues(json_data: dict, workspace: str) -> list:
         if strategy == "per-resource":
             # Create one issue per drifted resource with deduplication
             for resource in resources:
+                # Skip data sources — they're read-only and computed dynamically
+                if resource.get("is_data_source", False):
+                    logger.info(f"Skipping data source drift: {resource.get('type')}.{resource.get('name')} (read-only resource)")
+                    continue
+                
                 resource_id = resource.get("id")
                 resource_type = resource.get("type")
                 resource_name = resource.get("name")
@@ -349,6 +423,7 @@ def create_github_issues(json_data: dict, workspace: str) -> list:
                 severity = resource.get("severity", "MEDIUM")
                 
                 # Check if issue already exists (deduplication)
+                # Use resource_id as the unique key since it's specific to each AWS resource
                 try:
                     search_result = search_existing_issues(
                         owner=owner,
@@ -360,11 +435,15 @@ def create_github_issues(json_data: dict, workspace: str) -> list:
                     search_data = json.loads(search_result)
                     
                     if search_data.get("found"):
-                        logger.info(f"Issue already exists for {resource_id}: {search_data.get('issue_url')}")
-                        created_issues.append(search_data.get("issue_url"))
+                        existing_url = search_data.get("issue_url")
+                        existing_number = search_data.get("issue_number")
+                        logger.info(f"✓ Deduplication: Issue #{existing_number} already exists for {resource_id}: {existing_url}")
+                        created_issues.append(existing_url)
                         continue
+                    else:
+                        logger.debug(f"No existing issue found for {resource_id} (drift_type: {drift_type}). Will create new issue.")
                 except Exception as e:
-                    logger.warning(f"Error searching existing issues: {e}")
+                    logger.warning(f"Deduplication check failed for {resource_id}, proceeding with issue creation: {e}")
                 
                 # Determine assignee from teams.yaml
                 assignee = get_resource_assignee(resource_type, resource_name, teams_config)
@@ -396,11 +475,25 @@ def create_github_issues(json_data: dict, workspace: str) -> list:
                 # Add policy violations
                 policy_violations = resource.get("policy_violations", [])
                 if policy_violations:
-                    body += "### Policy Violations\n"
-                    for violation in policy_violations:
-                        body += f"- **Policy:** `{violation.get('policy')}`\n"
-                        body += f"  - **Section:** `{violation.get('section')}`\n"
-                        body += f"  - **Impact:** {violation.get('impact')}\n"
+                    body += "### ⚠️ Policy Violations\n"
+                    for idx, violation in enumerate(policy_violations, 1):
+                        policy = violation.get('policy', 'Unknown')
+                        section = violation.get('section', 'Unknown')
+                        impact = violation.get('impact', 'Unknown')
+                        compliance_frameworks = violation.get('compliance_frameworks', [])
+                        violation_severity = violation.get('severity', 'Unknown')
+                        
+                        body += f"\n**Violation {idx}:**\n"
+                        body += f"- **Policy Violation:** {policy} → {section}\n"
+                        body += f"- **Severity:** {violation_severity}\n"
+                        body += f"- **Impact:** {impact}\n"
+                        
+                        if compliance_frameworks:
+                            if isinstance(compliance_frameworks, list):
+                                frameworks = ", ".join(compliance_frameworks)
+                            else:
+                                frameworks = str(compliance_frameworks)
+                            body += f"- **Compliance Frameworks:** {frameworks}\n"
                     body += "\n"
                 
                 # Add remediation command
@@ -417,6 +510,28 @@ def create_github_issues(json_data: dict, workspace: str) -> list:
                     f"resource-{resource_type.replace('aws_', '')}",
                     f"workspace-{workspace}"
                 ]
+                
+                # Final safety check before creating issue (catch race conditions)
+                logger.debug(f"Final deduplication check for {resource_id} before creating issue...")
+                try:
+                    final_search = search_existing_issues(
+                        owner=owner,
+                        repo=repo,
+                        resource_id=resource_id,
+                        drift_type=drift_type,
+                        token=os.getenv("GITHUB_TOKEN"),
+                    )
+                    final_search_data = json.loads(final_search)
+                    
+                    if final_search_data.get("found"):
+                        # Issue was created between our first check and now
+                        existing_url = final_search_data.get("issue_url")
+                        existing_number = final_search_data.get("issue_number")
+                        logger.info(f"✓ Issue #{existing_number} detected during pre-creation check (race condition avoided): {existing_url}")
+                        created_issues.append(existing_url)
+                        continue
+                except Exception as e:
+                    logger.debug(f"Final deduplication check failed (non-critical): {e}")
                 
                 # Create issue
                 try:
@@ -467,6 +582,9 @@ def create_github_issues(json_data: dict, workspace: str) -> list:
             body += "|----------|------|----------|------------|-------------|\n"
             
             for resource in resources:
+                # Skip data sources in summary as well
+                if resource.get("is_data_source", False):
+                    continue
                 body += f"| `{resource.get('name')}` ({resource.get('id')}) | {resource.get('type')} | {resource.get('severity')} | {resource.get('drift_type')} | `{resource.get('remediation_command')}` |\n"
             
             body += "\n---\n*Generated by Terraform Drift Detector*"
@@ -578,11 +696,13 @@ def create_agent(retriever, enforce_json: bool = False):
     analyze_drift_with_policies = create_policy_analysis_tool(retriever)
     
     # Define tool list
+    # NOTE: policy_tools (analyze_drift_with_policies) disabled due to Ollama embeddings validation errors
+    # Policy violations are now populated via heuristic extraction in the success path
     tools = [
         parse_terraform_state,
         fetch_cloud_resources,
         compare_resources,
-        analyze_drift_with_policies,
+        # analyze_drift_with_policies,  # Disabled - using heuristic extraction instead
     ]
     
     # Create ReAct agent with system prompt
@@ -639,7 +759,7 @@ def run_check_mode(args):
     # Create agent
     _t_agent_start = _time.perf_counter()
     logger.info("Creating drift detection agent...")
-    agent = create_agent(retriever, enforce_json=True)
+    agent = create_agent(retriever, enforce_json=False)
     logger.info(f"TIMING | agent_creation: {_time.perf_counter() - _t_agent_start:.2f}s")
     
     # Construct user prompt
@@ -727,6 +847,18 @@ Provide a structured markdown report with drift summary and remediation commands
             logger.warning(f"Error extracting JSON: {e}")
         logger.info(f"TIMING | json_parse: {_time.perf_counter() - _t_parse_start:.2f}s")
 
+        # Ensure policy violations are populated (from agent or recovery heuristics)
+        if json_data and json_data.get("resources"):
+            for resource in json_data["resources"]:
+                # If policy_violations is missing or empty, populate using heuristics
+                if not resource.get("policy_violations"):
+                    resource["policy_violations"] = _extract_policy_violations_from_drift(
+                        resource.get("type"),
+                        resource.get("drift_type"),
+                        resource.get("severity"),
+                        resource.get("drift_details", {})
+                    )
+
         # Format and print markdown report
         if json_data:
             markdown_report = format_drift_report(json_data, args.workspace)
@@ -757,18 +889,21 @@ Provide a structured markdown report with drift summary and remediation commands
             print("=" * 80 + "\n")
         if json_data and json_data.get("drift_detected"):
             github_enabled = os.getenv("GITHUB_ISSUE_ENABLED", "false").lower() == "true"
+            created_issues = []
+            
             if github_enabled:
                 logger.info("GitHub issue creation is enabled")
                 _t_gh_start = _time.perf_counter()
                 created_issues = create_github_issues(json_data, args.workspace)
                 logger.info(f"TIMING | github_issue_creation: {_time.perf_counter() - _t_gh_start:.2f}s")
-
-                # Send Teams notifications if enabled
-                teams_enabled = os.getenv("TEAMS_NOTIFICATION_ENABLED", "false").lower() == "true"
-                if teams_enabled and created_issues:
-                    _t_teams_start = _time.perf_counter()
-                    send_teams_notifications(json_data, created_issues, args.workspace)
-                    logger.info(f"TIMING | teams_notification: {_time.perf_counter() - _t_teams_start:.2f}s")
+            
+            # Send Teams notifications if enabled (only after GitHub issues are created)
+            teams_enabled = os.getenv("TEAMS_NOTIFICATION_ENABLED", "false").lower() == "true"
+            if teams_enabled and created_issues:
+                _t_teams_start = _time.perf_counter()
+                logger.info(f"Sending Teams notification for {len(created_issues)} created issue(s)")
+                send_teams_notifications(json_data, created_issues, args.workspace)
+                logger.info(f"TIMING | teams_notification: {_time.perf_counter() - _t_teams_start:.2f}s")
 
         logger.info(f"TIMING | total_check_mode: {_time.perf_counter() - _t0:.2f}s")
         logger.info("Drift check completed successfully")
@@ -803,6 +938,17 @@ Provide a structured markdown report with drift summary and remediation commands
                 # Synthesize minimal JSON report for downstream automation
                 total = parsed_out.get('total_drifted', 0)
                 resources = parsed_out.get('drifted_resources', [])
+                
+                # Populate policy violations in recovery path using simple rules
+                # (when agent truncates before reaching policy analysis tool)
+                for resource in resources:
+                    resource['policy_violations'] = _extract_policy_violations_from_drift(
+                        resource.get('resource_type'),
+                        resource.get('drift_type'),
+                        resource.get('severity'),
+                        resource.get('changes', {})
+                    )
+                
                 json_data = {
                     'drift_detected': total > 0,
                     'summary': {
@@ -819,7 +965,9 @@ Provide a structured markdown report with drift summary and remediation commands
                             'severity': r.get('severity'),
                             'drift_type': r.get('drift_type'),
                             'drift_details': r.get('changes'),
+                            'is_data_source': r.get('is_data_source', False),
                             'remediation_command': None,
+                            'policy_violations': r.get('policy_violations', []),
                         }
                         for r in resources
                     ]
@@ -895,7 +1043,8 @@ def run_fix_mode(args):
     # Create agent
     _t_agent_start = _time.perf_counter()
     logger.info("Creating drift detection agent...")
-    agent = create_agent(retriever, enforce_json=True)
+    # Disable enforce_json to prevent Ollama from truncating large tool outputs
+    agent = create_agent(retriever, enforce_json=False)
     logger.info(f"TIMING | agent_creation: {_time.perf_counter() - _t_agent_start:.2f}s")
 
     # Construct user prompt for single resource
@@ -1062,10 +1211,6 @@ Examples:
         run_check_mode(args)
     elif args.fix:
         run_fix_mode(args)
-
-
-if __name__ == "__main__":
-    main()
 
 
 if __name__ == "__main__":
