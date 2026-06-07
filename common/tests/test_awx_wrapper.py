@@ -6,11 +6,9 @@ executing agents from Ansible AWX.
 """
 
 import json
-import os
 import pytest
 import sys
-from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import patch
 
 from common.awx_wrapper import (
     load_agent_module,

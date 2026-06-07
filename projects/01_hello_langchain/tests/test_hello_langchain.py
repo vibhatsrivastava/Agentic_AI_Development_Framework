@@ -224,7 +224,7 @@ class TestLCELComposition:
         
         # Act
         chain = prompt | mock_llm
-        result = chain.invoke({"input": "test value"})
+        chain.invoke({"input": "test value"})
         
         # Assert
         mock_llm.invoke.assert_called_once()

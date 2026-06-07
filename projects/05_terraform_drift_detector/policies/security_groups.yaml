@@ -1,0 +1,52 @@
+# policies/security_groups.yaml — Security group rule policies
+
+environments:
+  production:
+    ingress:
+      allowed_ports:
+        - port: 80
+          protocol: tcp
+          source: "0.0.0.0/0"
+          description: "HTTP from internet"
+        
+        - port: 443
+          protocol: tcp
+          source: "0.0.0.0/0"
+          description: "HTTPS from internet"
+        
+        - port: 22
+          protocol: tcp
+          source: "10.0.0.0/8"
+          description: "SSH from VPN only"
+      
+      violations:
+        unrestricted_ssh:
+          rule: "SSH (port 22) open to 0.0.0.0/0"
+          severity: critical
+          impact: "Critical security risk — brute force attacks, unauthorized access"
+          compliance_frameworks:
+            - framework: SOC2
+              section: "4.3.2 - Access Control"
+        
+        unrestricted_db:
+          rule: "Database ports (3306, 5432, 1433) open to 0.0.0.0/0"
+          severity: critical
+          impact: "Direct database access from internet — data breach risk"
+
+    egress:
+      default_policy: allow_all
+      restricted_resources:
+        - resource_pattern: ".*prod.*"
+          allowed_destinations:
+            - "0.0.0.0/0:80"
+            - "0.0.0.0/0:443"
+          violations:
+            unrestricted_egress:
+              rule: "Non-HTTP/HTTPS egress from production"
+              severity: medium
+              impact: "Potential data exfiltration path"
+
+  staging:
+    ingress:
+      default_policy: deny_all
+      exceptions: "Allow from corporate network (10.0.0.0/8)"

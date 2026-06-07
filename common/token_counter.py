@@ -6,7 +6,7 @@ monitor LLM usage and estimate costs. Supports multiple tokenization methods.
 """
 
 import re
-from typing import List, Dict, Optional, Union
+from typing import List, Dict, Optional
 from .exceptions import TokenCountError
 from .utils import get_logger
 

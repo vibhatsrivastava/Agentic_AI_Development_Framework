@@ -2,7 +2,6 @@
 test_exceptions.py — Tests for common.exceptions module.
 """
 
-import pytest
 from common.exceptions import (
     LangChainDevError,
     RateLimitError,

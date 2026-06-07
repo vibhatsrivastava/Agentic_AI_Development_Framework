@@ -27,17 +27,18 @@ if sys.platform == "win32":
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
-import argparse
-import json
-import os
-import requests
-from datetime import date, datetime, timedelta, timezone
-from typing import Optional, Dict, List
-from langchain.agents import create_agent
-from langchain_core.tools import tool
-from langchain_core.messages import HumanMessage
-from common.llm_factory import get_chat_llm
-from common.utils import get_logger, require_env, load_project_env
+import argparse  # noqa: E402
+import json  # noqa: E402
+import os  # noqa: E402
+import requests  # noqa: E402
+from datetime import date, datetime, timedelta, timezone  # noqa: E402
+from typing import Dict, Optional  # noqa: E402
+
+from common.llm_factory import get_chat_llm  # noqa: E402
+from common.utils import get_logger, load_project_env, require_env  # noqa: E402
+from langchain.agents import create_agent  # noqa: E402
+from langchain_core.messages import HumanMessage  # noqa: E402
+from langchain_core.tools import tool  # noqa: E402
 
 # Load environment variables (root .env + project .env)
 # Project directory is parent of src/ directory where this file lives
@@ -1632,7 +1633,7 @@ def process_single_repo_auto_analyze(owner: str, repo: str, token: str, dry_run:
                         )
                         
                         if teams_sent:
-                            print(f"   📢 Teams notification sent")
+                            print("   📢 Teams notification sent")
                             
                     except Exception as e:
                         logger.warning(f"Failed to send Teams notification (non-critical): {e}")

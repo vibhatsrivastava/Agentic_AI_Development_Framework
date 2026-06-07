@@ -5,7 +5,7 @@ utils.py — Common helper utilities shared across projects.
 import logging
 import os
 from pathlib import Path
-from dotenv import load_dotenv, find_dotenv
+from dotenv import load_dotenv
 
 load_dotenv()
 

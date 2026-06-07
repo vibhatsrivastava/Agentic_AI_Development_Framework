@@ -17,7 +17,7 @@ import os
 # Add repo root to Python path to enable imports from common/
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 import pytest
-from unittest.mock import patch, Mock, call
+from unittest.mock import patch, Mock
 from common.llm_factory import get_llm, get_chat_llm, get_embeddings
 
 
@@ -262,9 +262,9 @@ class TestLLMFactoryIntegration:
     ):
         """All factory functions can be called in sequence without errors."""
         # Simulate a typical workflow
-        llm = get_llm()
-        chat = get_chat_llm()
-        embeddings = get_embeddings()
+        get_llm()
+        get_chat_llm()
+        get_embeddings()
         
         assert mock_llm.called
         assert mock_chat.called
@@ -302,7 +302,7 @@ class TestVaultIntegration:
         
         # Now create LLM
         from common.llm_factory import get_llm
-        llm = get_llm()
+        get_llm()
         
         # Verify get_secret was called correctly
         mock_get_secret.assert_called_with(
@@ -427,31 +427,34 @@ class TestLangfuseCallbackAttachment:
     @patch("common.llm_factory.OllamaEmbeddings")
     @patch("common.llm_factory.get_langfuse_callback_handler")
     def test_get_embeddings_attaches_callback_when_enabled(self, mock_get_handler, mock_embeddings_class):
-        """get_embeddings() attaches Langfuse callback when handler is available."""
+        """get_embeddings() calls handler but does not attach to OllamaEmbeddings (schema limitation)."""
         mock_handler = Mock()
         mock_get_handler.return_value = mock_handler
         
         get_embeddings()
         
-        # Verify callback was attached
-        call_kwargs = mock_embeddings_class.call_args[1]
-        assert "callbacks" in call_kwargs
-        assert call_kwargs["callbacks"] == [mock_handler]
+        # Verify handler was retrieved (for potential future use)
         mock_get_handler.assert_called_once()
+        
+        # OllamaEmbeddings does not accept callbacks in its pydantic schema
+        # Verify callbacks are NOT passed to embeddings (by design)
+        call_kwargs = mock_embeddings_class.call_args[1]
+        assert "callbacks" not in call_kwargs
     
     @patch("common.llm_factory.OllamaEmbeddings")
     @patch("common.llm_factory.get_langfuse_callback_handler")
     def test_get_embeddings_no_callback_when_disabled(self, mock_get_handler, mock_embeddings_class):
-        """get_embeddings() does not attach callback when handler returns None."""
+        """get_embeddings() handles None handler gracefully (OllamaEmbeddings doesn't use callbacks)."""
         mock_get_handler.return_value = None
         
         get_embeddings()
         
-        # Verify empty callbacks list
-        call_kwargs = mock_embeddings_class.call_args[1]
-        assert "callbacks" in call_kwargs
-        assert call_kwargs["callbacks"] == []
+        # Verify handler was retrieved but not used (OllamaEmbeddings limitation)
         mock_get_handler.assert_called_once()
+        
+        # OllamaEmbeddings does not accept callbacks in its pydantic schema
+        call_kwargs = mock_embeddings_class.call_args[1]
+        assert "callbacks" not in call_kwargs
     
     @patch("common.llm_factory.OllamaLLM")
     @patch("common.llm_factory.ChatOllama")
@@ -460,7 +463,7 @@ class TestLangfuseCallbackAttachment:
     def test_same_callback_handler_used_across_all_factories(
         self, mock_get_handler, mock_embeddings, mock_chat, mock_llm
     ):
-        """All factory functions use the same cached Langfuse callback handler."""
+        """LLM and Chat factories use the same callback handler (embeddings doesn't support callbacks)."""
         mock_handler = Mock()
         mock_get_handler.return_value = mock_handler
         
@@ -471,14 +474,16 @@ class TestLangfuseCallbackAttachment:
         # Verify handler was retrieved 3 times (once per factory call)
         assert mock_get_handler.call_count == 3
         
-        # Verify all factories got the same handler instance
+        # Verify LLM and Chat factories got the same handler instance
         llm_callbacks = mock_llm.call_args[1]["callbacks"]
         chat_callbacks = mock_chat.call_args[1]["callbacks"]
-        embed_callbacks = mock_embeddings.call_args[1]["callbacks"]
         
         assert llm_callbacks == [mock_handler]
         assert chat_callbacks == [mock_handler]
-        assert embed_callbacks == [mock_handler]
+        
+        # OllamaEmbeddings does not accept callbacks in its pydantic schema
+        embed_call_kwargs = mock_embeddings.call_args[1]
+        assert "callbacks" not in embed_call_kwargs
     
     @patch("common.llm_factory.ChatOllama")
     @patch("common.llm_factory.get_langfuse_callback_handler")

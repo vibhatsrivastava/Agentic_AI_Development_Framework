@@ -8,7 +8,6 @@ output formatting, and project validation.
 import json
 import os
 import pytest
-from pathlib import Path
 
 from common.awx_utils import (
     extract_agent_params,

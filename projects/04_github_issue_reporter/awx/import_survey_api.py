@@ -74,7 +74,7 @@ if response.status_code != 200:
     try:
         error_detail = response.json()
         print(f"Error details: {json.dumps(error_detail, indent=2)}")
-    except:
+    except Exception:
         pass
     exit(1)
 
