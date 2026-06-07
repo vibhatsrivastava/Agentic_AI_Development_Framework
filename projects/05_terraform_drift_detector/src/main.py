@@ -17,6 +17,7 @@ if repo_root not in sys.path:
 import re
 import sys
 from pathlib import Path
+from typing import Optional
 from langgraph.prebuilt import create_react_agent
 from langchain_core.messages import HumanMessage
 from common.llm_factory import get_chat_llm
@@ -39,6 +40,8 @@ from utils.teams_parser import get_resource_assignee, parse_teams_config
 from integrations.teams_notifications import (
     send_drift_summary_notification,
 )
+from llm_policy_analyzer import LLMPolicyAnalyzer
+from impact_assessment_formatter import ImpactAssessmentFormatter
 
 # Load environment variables
 load_project_env()
@@ -87,13 +90,75 @@ def _call_tool(tool_obj, **kwargs):
     return tool_obj(**kwargs)
 
 
+# Initialize LLM Policy Analyzer (lazy-loaded on first use)
+_policy_analyzer: Optional[LLMPolicyAnalyzer] = None
+_impact_formatter: Optional[ImpactAssessmentFormatter] = None
+
+
+def _get_policy_analyzer() -> LLMPolicyAnalyzer:
+    """Get or create the LLM policy analyzer (lazy initialization)."""
+    global _policy_analyzer
+    if _policy_analyzer is None:
+        _policy_analyzer = LLMPolicyAnalyzer()
+    return _policy_analyzer
+
+
+def _get_impact_formatter() -> ImpactAssessmentFormatter:
+    """Get or create the impact assessment formatter (lazy initialization)."""
+    global _impact_formatter
+    if _impact_formatter is None:
+        _impact_formatter = ImpactAssessmentFormatter()
+    return _impact_formatter
+
+
+def _upgrade_resource_severity(resource: dict) -> None:
+    """
+    Upgrade resource severity based on policy violations found.
+    
+    The resource severity should be the maximum severity of all associated policy violations.
+    This ensures that CRITICAL compliance issues elevate the overall resource severity.
+    
+    Args:
+        resource: Dictionary representing a drifted resource (modified in-place)
+    """
+    policy_violations = resource.get("policy_violations", [])
+    if not policy_violations:
+        return
+    
+    # Severity hierarchy
+    severity_order = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1}
+    
+    current_severity = resource.get("severity", "LOW")
+    current_severity_rank = severity_order.get(current_severity, 0)
+    
+    # Find max severity from violations
+    max_violation_severity = "LOW"
+    max_violation_rank = 0
+    
+    for violation in policy_violations:
+        violation_severity = violation.get("severity", "LOW")
+        violation_rank = severity_order.get(violation_severity, 0)
+        
+        if violation_rank > max_violation_rank:
+            max_violation_rank = violation_rank
+            max_violation_severity = violation_severity
+    
+    # Upgrade resource severity if violations are more severe
+    if max_violation_rank > current_severity_rank:
+        logger.info(
+            f"Upgrading resource severity from {current_severity} to {max_violation_severity} "
+            f"due to {len(policy_violations)} policy violation(s)"
+        )
+        resource["severity"] = max_violation_severity
+
+
 def _extract_policy_violations_from_drift(resource_type: str, drift_type: str, 
                                           severity: str, changes: dict) -> list:
     """
-    Extract policy violations from drift details using heuristic rules.
+    Extract policy violations from drift details using LLM-based analysis.
     
-    This is used in the recovery path when the agent truncates before reaching
-    the full policy analysis tool. Provides sensible defaults based on drift characteristics.
+    This replaces the previous heuristic approach with intelligent LLM analysis
+    against actual policy files for enhanced impact assessment.
     
     Args:
         resource_type: AWS resource type (e.g., "aws_instance")
@@ -102,7 +167,46 @@ def _extract_policy_violations_from_drift(resource_type: str, drift_type: str,
         changes: Dict of changes detected
     
     Returns:
-        List of policy violation dictionaries
+        List of policy violation dictionaries (converted from PolicyViolation objects)
+    """
+    try:
+        analyzer = _get_policy_analyzer()
+        
+        # Use LLM to analyze violations
+        violations = analyzer.analyze_violations(
+            resource_type=resource_type,
+            drift_type=drift_type,
+            severity=severity,
+            changes=changes
+        )
+        
+        # Convert PolicyViolation dataclass objects to dicts for JSON serialization
+        violations_dicts = []
+        for v in violations:
+            violations_dicts.append({
+                "policy": v.policy,
+                "section": v.section,
+                "severity": v.severity,
+                "impact": v.impact,
+                "compliance_frameworks": v.compliance_frameworks,
+                "remediation": v.remediation,
+                "confidence": v.confidence
+            })
+        
+        logger.info(f"LLM analysis: {len(violations_dicts)} violations for {resource_type} ({drift_type})")
+        return violations_dicts
+        
+    except Exception as e:
+        logger.error(f"Error in LLM policy analysis: {e}. Using heuristic fallback.", exc_info=True)
+        return _fallback_heuristic_violations(resource_type, drift_type, severity, changes)
+
+
+def _fallback_heuristic_violations(resource_type: str, drift_type: str, 
+                                   severity: str, changes: dict) -> list:
+    """
+    Fallback heuristic extraction when LLM analysis is unavailable.
+    
+    This ensures the system continues to work even if LLM analysis fails.
     """
     violations = []
     
@@ -117,7 +221,9 @@ def _extract_policy_violations_from_drift(resource_type: str, drift_type: str,
                 "section": "tag_compliance.required_tags",
                 "severity": severity or "HIGH",
                 "impact": f"Missing or modified required tags on {resource_type}. Affects resource identification, cost tracking, and compliance.",
-                "compliance_frameworks": ["AWS_TAGGING_POLICY", "SOC2", "ISO27001"]
+                "compliance_frameworks": ["AWS_TAGGING_POLICY", "SOC2", "ISO27001"],
+                "remediation": f"Apply required tags to {resource_type}",
+                "confidence": 0.75
             })
     
     # Attribute/configuration changes
@@ -127,7 +233,9 @@ def _extract_policy_violations_from_drift(resource_type: str, drift_type: str,
             "section": "configuration_baseline.immutable_settings",
             "severity": severity or "MEDIUM",
             "impact": f"Configuration drift detected on {resource_type}. Manual changes outside Terraform may cause future apply failures.",
-            "compliance_frameworks": ["INFRASTRUCTURE_AS_CODE"]
+            "compliance_frameworks": ["INFRASTRUCTURE_AS_CODE"],
+            "remediation": "Run terraform apply or reconcile manual changes",
+            "confidence": 0.70
         })
     
     # Resource lifecycle (created/deleted outside Terraform)
@@ -137,7 +245,9 @@ def _extract_policy_violations_from_drift(resource_type: str, drift_type: str,
             "section": "lifecycle_control.terraform_managed_resources",
             "severity": severity or "CRITICAL",
             "impact": f"Resource lifecycle violation: {resource_type} managed outside Terraform. Breaks infrastructure-as-code principles.",
-            "compliance_frameworks": ["INFRASTRUCTURE_AS_CODE", "CHANGE_MANAGEMENT"]
+            "compliance_frameworks": ["INFRASTRUCTURE_AS_CODE", "CHANGE_MANAGEMENT"],
+            "remediation": "Import into Terraform (terraform import) or recreate via Terraform",
+            "confidence": 0.90
         })
     
     return violations
@@ -692,17 +802,13 @@ def create_agent(retriever, enforce_json: bool = False):
     else:
         llm = get_chat_llm()
     
-    # Create policy analysis tool bound to retriever
-    analyze_drift_with_policies = create_policy_analysis_tool(retriever)
-    
     # Define tool list
-    # NOTE: policy_tools (analyze_drift_with_policies) disabled due to Ollama embeddings validation errors
-    # Policy violations are now populated via heuristic extraction in the success path
+    # NOTE: Policy analysis is now handled via LLM-based analyzer (llm_policy_analyzer.py)
+    # Policy violations are populated in the recovery and success paths using intelligent LLM analysis
     tools = [
         parse_terraform_state,
         fetch_cloud_resources,
         compare_resources,
-        # analyze_drift_with_policies,  # Disabled - using heuristic extraction instead
     ]
     
     # Create ReAct agent with system prompt
@@ -858,6 +964,8 @@ Provide a structured markdown report with drift summary and remediation commands
                         resource.get("severity"),
                         resource.get("drift_details", {})
                     )
+                # Upgrade resource severity based on policy violations
+                _upgrade_resource_severity(resource)
 
         # Format and print markdown report
         if json_data:
@@ -948,6 +1056,8 @@ Provide a structured markdown report with drift summary and remediation commands
                         resource.get('severity'),
                         resource.get('changes', {})
                     )
+                    # Upgrade resource severity based on policy violations
+                    _upgrade_resource_severity(resource)
                 
                 json_data = {
                     'drift_detected': total > 0,

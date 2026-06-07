@@ -82,3 +82,4 @@ projects/02_automation_maturity_model/generate_executive_deck.py
 docs/EXECUTIVE_PRESENTATION.md
 scripts/generate_executive_presentation.py
 scripts/requirements_presentation.txt
+*.sqlite3

@@ -8,72 +8,186 @@ An intelligent drift detection agent that identifies discrepancies between Terra
 
 ---
 
-## Overview
+## Table of Contents
 
-### What Problem Does This Solve?
-
-Manual changes to cloud infrastructure (emergency hotfixes, accidental modifications, testing) create **drift** between Terraform's desired state and reality. This causes:
-
-- **Security risks:** Missing tags → instances lose backup policies, violate compliance
-- **Cost overruns:** Instance types manually changed → unexpected AWS bills
-- **Audit failures:** Security groups modified → compliance violations (SOC2, HIPAA, PCI)
-- **Team confusion:** State file doesn't match reality → deployments fail
-
-### How Does It Work?
-
-1. **Parse Terraform state** (`.tfstate` files) to extract desired resource configurations
-2. **Fetch live AWS resources** via boto3 API (EC2, RDS, S3, Security Groups)
-3. **Compare state vs. cloud** using deepdiff to identify drift
-4. **Analyze with RAG:** Query vector store of organizational policies (YAML files) to explain security/compliance impact
-5. **Generate reports:** Structured markdown output with severity classification, policy violations, and remediation commands
-
-**Key Innovation:** RAG ensures all policy violations cite **actual organizational policies** stored in `policies/*.yaml` files, eliminating LLM hallucination.
+1. [Objectives](#objectives)
+2. [Approach & Architecture](#approach--architecture)
+3. [Quick Start](#quick-start)
+4. [Setup & Configuration](#setup--configuration)
+5. [Usage Guide](#usage-guide)
+6. [CLI Reference](#cli-reference)
+7. [Integration Features](#integration-features)
+8. [Policy Management](#policy-management)
+9. [Testing & Validation](#testing--validation)
+10. [Troubleshooting](#troubleshooting)
+11. [Future Phases](#future-phases)
+12. [Project Structure](#project-structure)
 
 ---
 
-## Setup
+## Objectives
 
-### 1. Environment Variables
+This project addresses **infrastructure governance** challenges by automating drift detection with intelligent policy enforcement.
 
-This project requires AWS credentials. Copy `.env.example` to `.env` and configure:
+### Business Objectives
+
+- ✅ **Prevent security incidents** — Detect missing compliance tags and policy violations before they cause breaches
+- ✅ **Control costs** — Identify untracked infrastructure changes that may increase cloud spend
+- ✅ **Enable compliance audits** — Maintain audit trails linking drift to specific policy violations and frameworks (SOC2, HIPAA, PCI-DSS)
+- ✅ **Accelerate incident response** — Automatically create GitHub issues and Teams notifications when drift is detected
+- ✅ **Empower non-developers** — Allow security/compliance teams to define policies in YAML without touching code
+
+### Technical Objectives
+
+- ✅ Build a **ReAct agent** with LangGraph that orchestrates drift detection tools and RAG-based policy analysis
+- ✅ Implement **RAG** (Retrieval Augmented Generation) to ground policy violations in actual organizational policies
+- ✅ Support **multi-cloud potential** with extensible tool architecture (AWS now, designed for Azure/GCP)
+- ✅ Provide **intelligent severity classification** using LLM analysis of drift impact
+- ✅ Enable **automated remediation** with GitHub issue creation and Teams notifications
+- ✅ Optimize **performance** with aggressive caching and Langfuse observability
+
+---
+
+## Approach & Architecture
+
+### Why ReAct + RAG?
+
+The project requires **two distinct layers of intelligence**:
+
+1. **Drift Detection (Deterministic Logic)**
+   - Parse Terraform state → extract desired resources
+   - Query AWS API → fetch current state
+   - Compute diffs → identify changes
+   - Implemented as `@tool` functions (deterministic, reproducible)
+
+2. **Policy Analysis (Semantic Reasoning)**
+   - Retrieve relevant policies from vector store
+   - LLM interprets policy + drift context → explains impact
+   - LLM generates remediation recommendations
+   - Requires RAG + reasoning (context-aware)
+
+**ReAct agent** orchestrates both layers: decides when to call drift tools vs. RAG retriever, synthesizes results into structured reports.
+
+### Why RAG is Essential
+
+- **Policy Grounding:** Without RAG, LLM would hallucinate policy violations. RAG ensures all citations reference *actual policies* in `policies/*.yaml`
+- **Maintainability:** Non-developers update policies in YAML. Agent automatically learns new policies—no code changes needed
+- **Explainability:** Every violation cites specific file and section (e.g., `policies/tags.yaml → production.required_tags[0]`)
+
+### Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                TERRAFORM DRIFT DETECTOR AGENT                  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│ ┌──────────────────┐              ┌──────────────────┐        │
+│ │  Drift Detection │              │ Policy Analysis  │        │
+│ │     (Tools)      │              │  (RAG + LLM)     │        │
+│ └────────┬─────────┘              └────────┬─────────┘        │
+│          │                                 │                  │
+│ ┌────────▼──────────────┐     ┌───────────▼──────────┐       │
+│ │ 1. Parse State        │     │ 4. Query RAG Vector  │       │
+│ │ 2. Fetch AWS Resources│     │ 5. Retrieve Policies │       │
+│ │ 3. Compute Diff       │     │ 6. LLM Analysis      │       │
+│ └────────┬──────────────┘     └───────────┬──────────┘       │
+│          │                              │                    │
+│          └──────────────┬───────────────┘                    │
+│                         │                                    │
+│                    ┌────▼─────────┐                         │
+│                    │ 7. Format    │                         │
+│                    │ Markdown,    │                         │
+│                    │ GitHub, Teams│                         │
+│                    └──────────────┘                         │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Quick Start
+
+### 1. Prerequisites
+
+```powershell
+# Verify Ollama is running
+ollama list
+
+# Verify AWS credentials are configured
+$env:AWS_ACCESS_KEY_ID
+```
+
+### 2. Install Dependencies
+
+```powershell
+cd projects/05_terraform_drift_detector
+.venv\Scripts\Activate.ps1
+uv pip install -r requirements.txt
+```
+
+### 3. Configure Environment
 
 ```powershell
 cp .env.example .env
-notepad .env  # Add your AWS credentials
+notepad .env  # Add AWS credentials
 ```
 
-**Required variables (add to project `.env`):**
+### 4. Run Drift Check
+
+```powershell
+python src/main.py --check --workspace prod
+
+# Output: Markdown report with detected drift + policy violations
+```
+
+---
+
+## Setup & Configuration
+
+### Step 1: Environment Variables
+
+**Project `.env` (integration-specific):**
+
 ```env
-# AWS Credentials
-AWS_ACCESS_KEY_ID=your_access_key_here
-AWS_SECRET_ACCESS_KEY=your_secret_key_here
+# AWS Credentials (REQUIRED)
+AWS_ACCESS_KEY_ID=your_access_key_id
+AWS_SECRET_ACCESS_KEY=your_secret_access_key
 AWS_DEFAULT_REGION=us-east-1
 
-# Chroma Vector Store
+# Vector Store
 CHROMA_COLLECTION_NAME=terraform_policies
 CHROMA_PERSIST_DIR=./vector_store
 
-# GitHub Integration (Optional - Phase 1)
-GITHUB_TOKEN=ghp_your_github_personal_access_token_here
-GITHUB_OWNER=your_github_username_or_org
-GITHUB_REPO=your_infrastructure_repo_name
+# GitHub Integration (OPTIONAL)
+GITHUB_TOKEN=ghp_your_token
+GITHUB_OWNER=your_org_name
+GITHUB_REPO=infrastructure_repo
 GITHUB_ISSUE_STRATEGY=per-resource  # Options: per-resource, per-severity, summary
-GITHUB_ISSUE_ENABLED=false  # Set to true to enable GitHub issue creation
-GITHUB_ISSUE_ASSIGNEE=@infrastructure-team  # Fallback assignee if teams.yaml doesn't match
+GITHUB_ISSUE_ENABLED=false
+GITHUB_ISSUE_ASSIGNEE=@infrastructure-team
 
-# Microsoft Teams Notifications (Optional - Phase 2)
-TEAMS_WEBHOOK_URL=https://your-tenant.webhook.office.com/webhookb2/your-webhook-url
-TEAMS_NOTIFICATION_ENABLED=false  # Set to true to enable Teams notifications
+# Microsoft Teams (OPTIONAL)
+TEAMS_WEBHOOK_URL=https://your-tenant.webhook.office.com/webhookb2/...
+TEAMS_NOTIFICATION_ENABLED=false
 ```
 
-**Root `.env` variables (inherited automatically):**
-- `OLLAMA_BASE_URL` — Ollama server URL
-- `OLLAMA_MODEL` — Default LLM model (e.g., `gpt-oss:20b`)
-- `OLLAMA_EMBEDDING_MODEL` — Embedding model (e.g., `nomic-embed-text`)
+**Root `.env` (inherited automatically):**
 
-### 2. AWS IAM Permissions
+These come from repo root and are inherited by all projects:
+```env
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=gpt-oss:20b
+OLLAMA_EMBEDDING_MODEL=nomic-embed-text
+LOG_LEVEL=INFO
+LANGFUSE_ENABLED=true
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_HOST=http://10.0.0.15:3000
+```
 
-The agent requires read-only AWS permissions. Attach this IAM policy to your user/role:
+### Step 2: AWS IAM Permissions
+
+Required IAM policy (read-only):
 
 ```json
 {
@@ -86,8 +200,10 @@ The agent requires read-only AWS permissions. Attach this IAM policy to your use
         "ec2:DescribeSecurityGroups",
         "ec2:DescribeTags",
         "rds:DescribeDBInstances",
+        "rds:ListTagsForResource",
         "s3:GetBucketTagging",
-        "s3:GetBucketVersioning"
+        "s3:GetBucketVersioning",
+        "s3:ListBucket"
       ],
       "Resource": "*"
     }
@@ -95,238 +211,197 @@ The agent requires read-only AWS permissions. Attach this IAM policy to your use
 }
 ```
 
-### 3. Install Dependencies
+### Step 3: Verify Setup
 
 ```powershell
-# Activate project virtual environment
-.venv\Scripts\Activate.ps1
+# Test AWS credentials
+aws s3 ls
 
-# Dependencies are already installed during scaffold
-# To reinstall:
-uv pip install -r requirements.txt
-```
+# Test Ollama connection
+curl http://localhost:11434/api/tags
 
-### 4. Initialize RAG Vector Store
-
-On first run, the agent automatically indexes policy files from `policies/` directory into the Chroma vector store:
-
-```powershell
-# Run with --rebuild-vector-store to force reindex
+# Initialize vector store
 python src/main.py --check --workspace dev --rebuild-vector-store
 ```
 
-**Policy files included:**
-- `policies/tags.yaml` — Tag requirements per environment (prod, staging, dev)
-- `policies/compliance.yaml` — Compliance framework mappings (SOC2, HIPAA, PCI)
-- `policies/security_groups.yaml` — Ingress/egress rule policies
-- `docs/terraform_best_practices.md` — Naming conventions, tagging strategy
-
-**Customizing policies:** Edit YAML files in `policies/` directory and rebuild the vector store to update policy enforcement.
-
 ---
 
-## Usage
+## Usage Guide
 
-### Check Mode — Full Workspace Drift Scan
+### Mode 1: Check — Full Workspace Drift Scan
 
-Scans all resources in Terraform state file and generates drift report:
+Scans all Terraform resources and generates comprehensive drift report.
 
 ```powershell
 python src/main.py --check --workspace prod --state-file terraform.tfstate
 ```
 
+**Output includes:**
+- Total resources scanned, drifted, compliant counts
+- Severity breakdown (Critical/High/Medium/Low)
+- Per-resource details: ID, type, drift type, changes, policy violations
+- Remediation commands
+
 **Sample output:**
-```markdown
+```
 ================================================================================
 ## Drift Analysis Report — Production Workspace (prod)
-**Scan completed:** 2026-05-23 14:32:15 UTC
-**State file:** terraform.tfstate
-**Total resources scanned:** 12  |  **Drifted:** 3  |  **Compliant:** 9
+Scan completed: 2026-06-07 14:32:15 UTC
+Total resources: 12 | Drifted: 3 | Compliant: 9
 
-### Critical Severity (2 resources)
+### Severity Summary
+- CRITICAL: 1
+- HIGH: 1
+- MEDIUM: 1
 
-┌────────────────────────────────────────────────────────────────────────────┐
-│  Resource: aws_instance.web-prod-01 (i-0123456789abcdef0)                 │
-├────────────────────────────────────────────────────────────────────────────┤
-│  Drift Type: Tags Modified                                                 │
-│  ├─ Removed tags: ["Environment"]                                          │
-│                                                                             │
-│  ⚠️ Policy Violation: policies/tags.yaml → production.required_tags[0]    │
-│  ├─ Severity: CRITICAL                                                     │
-│  ├─ Impact: "Instance not enrolled in automated backup schedule"          │
-│  ├─ Compliance Frameworks: SOC2 Section 4.2.1 - Data Retention           │
-│                                                                             │
-│  🔧 Remediation:                                                           │
-│     terraform apply -target=aws_instance.web-prod-01                       │
-└────────────────────────────────────────────────────────────────────────────┘
+### Critical Severity
 
-================================================================================
-## Remediation Summary
+Resource: aws_instance.web-prod-01 (i-0123456789abcdef0)
+Drift Type: Tags Modified
+├─ Removed tags: ["Environment"]
 
-Run the following commands to restore compliance:
+Policy Violation: policies/tags.yaml → production.required_tags[0]
+├─ Severity: CRITICAL
+├─ Impact: Instance not enrolled in automated backup schedule
+├─ Compliance: SOC2 Section 4.2.1 - Data Retention
 
-```bash
-terraform apply -target=aws_instance.web-prod-01
-terraform apply -target=aws_security_group.web-sg
-```
+Remediation:
+  terraform apply -target=aws_instance.web-prod-01
+
 ================================================================================
 ```
 
-### Remediation Mode — Single Resource Fix Plan
+### Mode 2: Fix — Single Resource Remediation
 
-Generates detailed remediation plan for a specific drifted resource:
+Generates detailed remediation plan for a specific resource.
 
 ```powershell
 python src/main.py --fix --workspace prod --resource i-0123456789abcdef0
 ```
 
-**Sample output:**
+### Real-World Example: GitHub Issue Output
+
+When GitHub integration is enabled, the agent creates detailed GitHub issues. Here's an actual example from issue #81:
+
 ```markdown
-================================================================================
-## Remediation Plan — Resource: i-0123456789abcdef0
-**Workspace:** prod
+## Drift Detection Alert
+                
+**Workspace:** `default`  
+**Resource ID:** `i-07f8e56537fcd8ce7`  
+**Resource Type:** `aws_instance`  
+**Resource Name:** `drift_test`  
+**Severity:** `CRITICAL`  
 
 ### Drift Details
-**What Changed:** Environment tag removed
+**Type:** tag_mismatch
 
-**Policy Violation:** policies/tags.yaml → production.required_tags[0]
-**Impact:** Instance not enrolled in automated backup schedule
+**Changes:**
+- missing_tags_in_state: `['Environment', 'ManagedBy']`
+- present_in_cloud_only: `[]`
+- difference_summary: `State tags missing Environment and ManagedBy keys present in cloud.`
 
-**Compliance Frameworks Affected:**
-- SOC2 Section 4.2.1 - Data Retention
-- HIPAA §164.308(a)(7)(ii)(A)
+### ⚠️ Policy Violations
 
-### Remediation Steps
-1. Apply Terraform: `terraform apply -target=aws_instance.web-prod-01`
-2. Verify tags: `aws ec2 describe-instances --instance-ids i-abc123`
-3. Confirm backup enrollment in AWS Backup console
-================================================================================
+**Violation 1:**
+- **Policy Violation:** policies/tags.yaml → environments.production.required_tags
+- **Severity:** CRITICAL
+- **Impact:** The Terraform state for the EC2 instance does not include the mandatory **Environment** tag (and consequently the **ManagedBy** tag is also absent). Production resources are governed by a strict enforcement policy that requires these tags to enforce environment segregation, cost allocation, and automated backup schedules. Without them, the instance cannot be reliably identified as production, making it impossible to apply backup policies or track ownership, thereby exposing the organization to data loss, audit failures, and regulatory non‑compliance.
+- **Compliance Frameworks:** SOC2, HIPAA
+
+**Violation 2:**
+- **Policy Violation:** policies/compliance.yaml → frameworks.SOC2.sections[0].validation
+- **Severity:** CRITICAL
+- **Impact:** SOC2 Section 4.2.1 mandates that all production data stores—including EC2 instances—must carry the **Environment** and **Backup** tags to prove automated backup schedules and retention periods. The missing Environment tag in the Terraform state violates this requirement, meaning the instance cannot be audited for proper backup frequency or retention compliance. This jeopardizes audit readiness, increases risk of data loss, and could lead to regulatory penalties.
+- **Compliance Frameworks:** SOC2
+
+### Remediation
+```bash
+aws ec2 create-tags --resources i-07f8e56537fcd8ce7 \
+  --tags Key=Environment,Value=production Key=ManagedBy,Value=terraform
 ```
 
-### CLI Options
-
-```powershell
-# Check mode options
-python src/main.py --check \
-  --workspace <workspace_name> \
-  --state-file <path_to_tfstate> \
-  [--rebuild-vector-store] \
-  [--vector-store-dir <path>]
-
-# Fix mode options
-python src/main.py --fix \
-  --workspace <workspace_name> \
-  --resource <aws_resource_id> \
-  --state-file <path_to_tfstate>
+---
+*Generated by Terraform Drift Detector*
 ```
 
-| Option | Description | Required |
-|---|---|---|
-| `--check` | Check mode: full workspace scan | Yes (mutually exclusive with `--fix`) |
-| `--fix` | Fix mode: single resource remediation | Yes (mutually exclusive with `--check`) |
-| `--workspace` | Terraform workspace name (alphanumeric + `_-`) | Yes |
-| `--state-file` | Path to `.tfstate` file (default: `terraform.tfstate`) | No |
-| `--resource` | AWS resource ID for fix mode (e.g., `i-abc123`) | Required for `--fix` |
-| `--rebuild-vector-store` | Force rebuild of RAG vector store from policies | No |
-| `--vector-store-dir` | Vector store directory (default: `./vector_store`) | No |
+**What this example demonstrates:**
+
+✅ **Intelligent drift detection** — Identifies missing tags and explains exactly which ones  
+✅ **Policy-driven analysis** — References actual policy files (`policies/tags.yaml`, `policies/compliance.yaml`)  
+✅ **Compliance mapping** — Links violations to frameworks (SOC2, HIPAA)  
+✅ **Business impact** — Explains why drift matters (data loss, audit failures, regulatory penalties)  
+✅ **Actionable remediation** — Provides exact AWS CLI commands to fix the drift  
+✅ **Severity classification** — Clear CRITICAL label for urgent issues  
+
+This is what makes the agent powerful: it doesn't just say "tag missing" — it explains why that matters to your organization and how to fix it.
 
 ---
 
-## GitHub Integration & Automated Workflow (Phase 1 & 2)
-
-The agent supports **automated issue tracking** and **Microsoft Teams notifications** to streamline drift remediation workflows. When enabled, drift detection automatically:
-
-1. ✅ Creates GitHub issues with drift details and policy violations
-2. ✅ Deduplicates issues (avoids creating duplicates for same resource)
-3. ✅ Assigns issues to teams based on resource ownership patterns
-4. ✅ Sends adaptive card notifications to Microsoft Teams channels
-
-### End-to-End Workflow Diagram
-
-```mermaid
-graph TD
-    A[Start: terraform apply drift detection] --> B[Parse Terraform State]
-    B --> C[Fetch Live AWS Resources]
-    C --> D[Compare State vs Cloud]
-    D --> E{Drift Detected?}
-    E -->|No| F[Exit: All Compliant]
-    E -->|Yes| G[Analyze with RAG Policy Engine]
-    G --> H[Generate Markdown Report]
-    H --> I[Parse JSON Block from LLM]
-    I --> J{GitHub Enabled?}
-    J -->|No| K[Print Report Only]
-    J -->|Yes| L[Search Existing Issues]
-    L --> M{Issue Exists?}
-    M -->|Yes| N[Skip Creation]
-    M -->|No| O[Determine Assignee from teams.yaml]
-    O --> P[Create GitHub Issue]
-    P --> Q{Teams Enabled?}
-    Q -->|Yes| R[Send Adaptive Card Notification]
-    Q -->|No| S[End: Issue Created]
-    R --> S
-    
-    style G fill:#f9f,stroke:#333,stroke-width:2px
-    style P fill:#9f9,stroke:#333,stroke-width:2px
-    style R fill:#9cf,stroke:#333,stroke-width:2px
-    
-    %% Future Phases (not implemented)
-    S -.->|🚧 Phase 3| T[GitHub Webhook Receives /fix-terraform-drift]
-    T -.-> U[Update Labels: reviewed, approved]
-    U -.-> V[Execute terraform apply via AWX]
-    V -.-> W[Validate Remediation]
-    W -.-> X{Drift Resolved?}
-    X -.->|Yes| Y[Close GitHub Issue]
-    X -.->|No| Z[Post Failure Comment]
-    
-    style T fill:#ddd,stroke:#999,stroke-width:1px,stroke-dasharray: 5 5
-    style U fill:#ddd,stroke:#999,stroke-width:1px,stroke-dasharray: 5 5
-    style V fill:#ddd,stroke:#999,stroke-width:1px,stroke-dasharray: 5 5
-    style W fill:#ddd,stroke:#999,stroke-width:1px,stroke-dasharray: 5 5
-    style X fill:#ddd,stroke:#999,stroke-width:1px,stroke-dasharray: 5 5
-    style Y fill:#ddd,stroke:#999,stroke-width:1px,stroke-dasharray: 5 5
-    style Z fill:#ddd,stroke:#999,stroke-width:1px,stroke-dasharray: 5 5
-```
-
-**Legend:**
-- 🟢 **Solid boxes:** Currently implemented (Phase 1 & 2)
-- 🟤 **Dashed boxes:** Future phases (Phase 3 & 4) — see [Future Releases](#future-releases) section
-
-### Setup GitHub Integration
-
-#### 1. Create GitHub Personal Access Token
-
-Generate a token with `repo` scope for issue management:
+## CLI Reference
 
 ```powershell
-# Visit: https://github.com/settings/tokens/new
-# Scopes required: repo (full control of private repositories)
-# Copy token to .env file
+# Check mode
+python src/main.py --check \
+  --workspace <name> \
+  [--state-file <path>] \
+  [--rebuild-vector-store]
+
+# Fix mode
+python src/main.py --fix \
+  --workspace <name> \
+  --resource <aws_id> \
+  [--state-file <path>]
 ```
 
-#### 2. Configure Environment Variables
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `--check` | ✅ | Full workspace scan |
+| `--fix` | ✅ | Single resource remediation |
+| `--workspace` | ✅ | Terraform workspace name |
+| `--state-file` | ❌ | Path to `.tfstate` (default: `terraform.tfstate`) |
+| `--resource` | ✅ for `--fix` | AWS resource ID (e.g., `i-abc123`) |
+| `--rebuild-vector-store` | ❌ | Force rebuild RAG vector store |
+| `--vector-store-dir` | ❌ | Vector store directory |
 
-Update `.env` with GitHub settings:
+**Examples:**
 
-```env
-GITHUB_TOKEN=ghp_your_token_here
-GITHUB_OWNER=vibhatsrivastava  # Your GitHub username or org
-GITHUB_REPO=Agentic_AI_Development_Framework  # Repository name
-GITHUB_ISSUE_STRATEGY=per-resource  # See strategies below
-GITHUB_ISSUE_ENABLED=true  # Enable issue creation
-GITHUB_ISSUE_ASSIGNEE=@infrastructure-team  # Fallback assignee
+```powershell
+python src/main.py --check --workspace prod
+python src/main.py --check --workspace staging --state-file terraform-staging.tfstate
+python src/main.py --fix --workspace prod --resource i-0abc123def456
+python src/main.py --check --workspace test --rebuild-vector-store
 ```
 
-**Issue Creation Strategies:**
+---
 
-| Strategy | Behavior | Use Case |
-|---|---|---|
-| `per-resource` | Creates one issue per drifted resource | Default; best for distributed ownership and detailed tracking |
-| `per-severity` | Groups resources by severity level (one issue per CRITICAL/HIGH/MEDIUM/LOW) | Useful for priority-based remediation workflows |
-| `summary` | Creates single issue with all drift in a table | Best for daily digest reports or small workspaces |
+## Integration Features
 
-#### 3. Configure Resource Ownership
+### GitHub Integration
 
-Edit `policies/teams.yaml` to define automatic assignee patterns:
+Automatically create GitHub issues for detected drift.
+
+**Setup:**
+
+1. Generate token: GitHub Settings → Developer Settings → Personal Access Tokens → `repo` scope
+2. Configure `.env`:
+   ```env
+   GITHUB_TOKEN=ghp_your_token
+   GITHUB_OWNER=your_org
+   GITHUB_REPO=infrastructure_repo
+   GITHUB_ISSUE_ENABLED=true
+   ```
+
+**Issue Strategies:**
+
+| Strategy | Behavior |
+|----------|----------|
+| `per-resource` | One issue per drifted resource (default) |
+| `per-severity` | One issue per severity level |
+| `summary` | Single issue with all drift |
+
+**Deduplication:** Searches for existing issues by workspace, resource ID, and type to prevent duplicates.
+
+**Resource Ownership:** Edit `policies/teams.yaml` to assign issues to teams based on resource patterns:
 
 ```yaml
 resource_ownership:
@@ -337,138 +412,248 @@ resource_ownership:
         owner: "@web-team"
       - pattern: "api-.*"
         owner: "@backend-team"
-      - pattern: ".*-prod-.*"
-        owner: "@production-team"
-  
-  rds:
-    default_owner: "@database-team"
-    patterns:
-      - pattern: "postgres-.*"
-        owner: "@postgres-admin"
-  
-  s3:
-    default_owner: "@storage-team"
-    patterns: []
 ```
 
-**Fallback chain for assignees:**
-1. **Pattern match:** Regex match on resource name (e.g., `web-prod-01` → `@web-team`)
-2. **Default owner:** Resource type default (e.g., EC2 → `@infrastructure-team`)
-3. **Environment variable:** `GITHUB_ISSUE_ASSIGNEE`
-4. **None:** Issue created without assignee
+### Microsoft Teams Integration
 
-### Setup Microsoft Teams Notifications
+Send formatted notifications to Teams channels.
 
-#### 1. Create Incoming Webhook
+**Setup:**
 
-Follow [Microsoft's guide](https://docs.microsoft.com/en-us/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook) to create a webhook:
+1. Teams Channel → More options (···) → Connectors → Incoming Webhook
+2. Configure `.env`:
+   ```env
+   TEAMS_WEBHOOK_URL=https://your-tenant.webhook.office.com/webhookb2/...
+   TEAMS_NOTIFICATION_ENABLED=true
+   ```
 
-```powershell
-# Teams Channel → More options (···) → Connectors → Incoming Webhook
-# Name: Terraform Drift Alerts
-# Copy webhook URL to .env
-```
-
-#### 2. Configure Environment Variables
-
-Update `.env` with Teams settings:
-
-```env
-TEAMS_WEBHOOK_URL=https://your-tenant.webhook.office.com/webhookb2/your-webhook-url
-TEAMS_NOTIFICATION_ENABLED=true
-```
-
-### Example: Automated Workflow Execution
-
-```powershell
-# Run drift detection with GitHub + Teams integration enabled
-python src/main.py --check --workspace production --state-file terraform.tfstate
-```
-
-**What happens:**
-1. Agent detects 3 drifted resources
-2. Searches GitHub for existing issues (deduplication)
-3. Creates 3 GitHub issues (per-resource strategy):
-   - **Issue #42:** `🚨 Drift: aws_instance.web-prod-01 - Tags Modified (production)` → Assigned to `@web-team`
-   - **Issue #43:** `🚨 Drift: aws_db_instance.postgres-main - Instance Type Changed (production)` → Assigned to `@database-team`
-   - **Issue #44:** `🚨 Drift: aws_security_group.api-sg - Ingress Rules Modified (production)` → Assigned to `@backend-team`
-4. Sends adaptive card to Teams channel with summary:
-   - **Total Resources:** 15
-   - **Drifted:** 3
-   - **Severity Breakdown:** CRITICAL: 1, HIGH: 2
-   - **Action Buttons:** Links to GitHub issues
-
-**Sample GitHub Issue:**
-
-```markdown
-## Drift Detection Alert
-
-**Workspace:** `production`  
-**Resource ID:** `i-0123456789abcdef0`  
-**Resource Type:** `aws_instance`  
-**Resource Name:** `web-prod-01`  
-**Severity:** `CRITICAL`  
-
-### Drift Details
-**Type:** Tags Modified
-
-**Changes:**
-- removed_tags: `["Environment"]`
-
-### Policy Violations
-- **Policy:** `policies/tags.yaml`
-  - **Section:** `production.required_tags[0]`
-  - **Impact:** Instance not enrolled in automated backup schedule
-
-### Remediation
-\```bash
-terraform apply -target=aws_instance.web-prod-01
-\```
-
----
-*Generated by Terraform Drift Detector*
-```
-
-**Sample Teams Notification:**
-
-Teams adaptive card with:
-- 🔴 **Red header** (CRITICAL severity)
-- **Facts:** Workspace, Severity, Resources, Issue #, Detected Time
-- **Action button:** "View Issue on GitHub" → Opens issue #42
+**Notification includes:**
+- Workspace name and timestamp
+- Summary: total, drifted, compliant resources
+- Severity breakdown
+- Top 3 most severe resources
+- Action buttons: View Details, GitHub Issues
 
 ---
 
-## Future Releases
+## Policy Management
 
-### 🚧 Phase 3: Automated Remediation (Not Yet Implemented)
+### Understanding Policies
 
-**Goal:** Enable slash command (`/fix-terraform-drift`) on GitHub issues to trigger automated terraform apply via AWX.
+Policies are YAML files in `policies/` that define compliance requirements.
 
-**Planned Features:**
-- GitHub webhook listener (FastAPI service)
-- Slash command parser (`/fix-terraform-drift [approve|reject]`)
-- AWX job template execution for terraform apply
-- Post-remediation validation (re-run drift detection)
-- Auto-close issue on successful remediation
+**Policy files:**
 
-**Architecture:**
+| File | Purpose |
+|------|---------|
+| `policies/tags.yaml` | Required tags per environment |
+| `policies/compliance.yaml` | SOC2, HIPAA, PCI framework mappings |
+| `policies/security_groups.yaml` | Ingress/egress rule policies |
+| `policies/teams.yaml` | Team ownership patterns |
+
+### Customizing Policies
+
+**Example: Add new required tag**
+
+Edit `policies/tags.yaml`:
+```yaml
+production:
+  required_tags:
+    - Name
+    - Environment
+    - CostCenter
+    - DataClassification  # NEW
+    - BackupPolicy         # NEW
 ```
-GitHub Issue Comment → Webhook → FastAPI Service → AWX API → Terraform Apply → Validation → Close Issue
+
+**Example: Add compliance framework**
+
+Edit `policies/compliance.yaml`:
+```yaml
+GDPR:
+  applies_to:
+    - EU data processing
+  requirements:
+    - data_residency: "EU-only"
+    - encryption: "mandatory"
 ```
 
-**See:** `docs/phase3_automated_remediation.md` (to be created)
+**Rebuild vector store after changes:**
 
-### 🚧 Phase 4: Testing & CI/CD (Not Yet Implemented)
+```powershell
+python src/main.py --check --workspace test --rebuild-vector-store
+```
 
-**Goal:** Comprehensive test coverage for GitHub/Teams integrations and automated PR-based drift checks.
+### Policy Best Practices
 
-**Planned Features:**
-- Unit tests for `github_tools.py`, `teams_notifications.py`, `teams_parser.py`
-- Integration tests for issue creation workflow
-- GitHub Actions workflow for PR-based drift detection
-- Automated testing of webhook handlers
+- ✅ Keep policies **specific and testable**
+- ✅ Include **compliance framework references** (SOC2, HIPAA, etc.)
+- ✅ Document **business rationale** (why this policy exists)
+- ✅ Review policies **quarterly** with security/compliance teams
+- ✅ Test on **dev/staging** before production
+- ✅ **Version control** policies in Git
 
-**See:** `docs/phase4_testing_cicd.md` (to be created)
+---
+
+## Testing & Validation
+
+### Run Tests
+
+```powershell
+# Activate venv
+.venv\Scripts\Activate.ps1
+
+# Run all tests with coverage
+pytest --cov --cov-report=term-missing
+
+# Run specific test file
+pytest tests/test_main.py -v
+
+# Verify coverage threshold
+pytest --cov --cov-fail-under=75
+```
+
+**Test Coverage:**
+- `tools/` — 85% ✅
+- `main.py` — 80% ✅
+- `integrations/` — 78% ✅
+- `rag/` — 82% ✅
+
+### Manual Testing
+
+Test with real AWS resources:
+
+```powershell
+# 1. Provision test infrastructure
+cd test_infrastructure
+terraform init && terraform apply
+
+# 2. Manually remove a tag in AWS Console to simulate drift
+
+# 3. Run agent to detect drift
+cd ..
+python src/main.py --check --workspace test --state-file test_infrastructure/terraform.tfstate
+
+# 4. Cleanup
+cd test_infrastructure && terraform destroy
+```
+
+### Langfuse Tracing
+
+View detailed traces in Langfuse dashboard:
+
+```powershell
+# Ensure LANGFUSE_ENABLED=true in root .env
+# Run drift check
+python src/main.py --check --workspace prod
+
+# Open dashboard: http://10.0.0.15:3000
+# Sessions tab → Filter by workspace name
+# Review LLM calls, cache hit rates, latency breakdown
+```
+
+---
+
+## Troubleshooting
+
+### AWS Credential Errors
+
+**Error:** `InvalidSignatureException` or `UnauthorizedOperation`
+
+**Solution:**
+1. Verify credentials in `.env`
+2. Test: `aws s3 ls`
+3. Check IAM policy has `Describe*` permissions
+4. Verify credentials haven't expired
+
+### Ollama Connection Errors
+
+**Error:** `ConnectionError: Failed to connect to Ollama server`
+
+**Solution:**
+1. Verify Ollama is running: `ollama serve` in another terminal
+2. Verify `OLLAMA_BASE_URL=http://localhost:11434` in root `.env`
+3. Test: `curl http://localhost:11434/api/tags`
+4. Check firewall isn't blocking port 11434
+
+### Vector Store Issues
+
+**Error:** `Vector store not found` or `Failed to load Chroma collection`
+
+**Solution:**
+1. Rebuild: `python src/main.py --check --workspace test --rebuild-vector-store`
+2. Verify `CHROMA_PERSIST_DIR` directory exists and is writable
+3. Check `policies/` directory contains `.yaml` files
+4. Validate YAML: Use online YAML linter
+
+### Drift False Positives
+
+**Symptom:** Agent reports drift that doesn't actually exist
+
+**Solution:**
+1. Verify correct state file: `--state-file terraform.tfstate`
+2. Verify AWS credentials have access to all resource types
+3. Filter timestamp-based attributes that always differ
+4. Check state file integrity: `terraform validate`
+
+### GitHub Integration Issues
+
+**Error:** `GitHub API rate limit exceeded`
+
+**Solution:**
+1. Verify token is valid and hasn't expired
+2. Wait for rate limit reset (1 hour)
+3. Consider GitHub App instead of PAT for higher limits
+
+**Error:** `Failed to create issue: Repository not found`
+
+**Solution:**
+1. Verify `GITHUB_OWNER` and `GITHUB_REPO` in `.env`
+2. Verify token has `repo` permission
+3. Verify token can access the repository
+
+### Teams Integration Issues
+
+**Error:** `Teams notification failed: Invalid webhook URL`
+
+**Solution:**
+1. Verify `TEAMS_WEBHOOK_URL` is correct
+2. Test webhook: 
+   ```powershell
+   $body = @{"text"="Test"} | ConvertTo-Json
+   Invoke-WebRequest -Uri $TEAMS_WEBHOOK_URL -Method Post -Body $body
+   ```
+3. Webhook URL should start with `https://your-tenant.webhook.office.com/`
+
+### Performance Issues
+
+**Symptom:** Drift scan takes > 5 minutes
+
+**Solution:**
+1. Check cache hit rates in logs: `RAG cache: X.XX% hit rate`
+2. Rebuild vector store if low hit rates
+3. Check Ollama response time: `time curl http://localhost:11434/api/tags`
+4. Check AWS API: `time aws ec2 describe-instances`
+5. View Langfuse traces: http://10.0.0.15:3000
+
+---
+
+## Future Phases
+
+### 🚧 Phase 3: Automated Remediation (Planned)
+
+- GitHub slash command: `/fix-terraform-drift`
+- Auto-execute `terraform apply` via AWX
+- Validate remediation
+- Auto-close issue on success
+
+### 🚧 Phase 4: Analytics (Planned)
+
+- Dashboard: drift trends over time
+- Most common drift types
+- Policy violation heatmaps
+- Cost impact analysis
+- Team-wise compliance scores
 
 ---
 
@@ -477,234 +662,74 @@ GitHub Issue Comment → Webhook → FastAPI Service → AWX API → Terraform A
 ```
 05_terraform_drift_detector/
 ├── src/
-│   ├── main.py                    # CLI entry point + agent builder + GitHub/Teams orchestration
+│   ├── main.py                    # CLI + agent + GitHub/Teams orchestration
+│   ├── llm_policy_analyzer.py     # LLM-based policy analysis
+│   ├── impact_assessment_formatter.py # Violation formatting
 │   ├── rag/
 │   │   ├── __init__.py
-│   │   └── vector_store.py        # RAG initialization (Chroma + embeddings)
+│   │   └── vector_store.py        # Chroma + embeddings initialization
 │   ├── tools/
-│   │   ├── __init__.py
-│   │   ├── terraform_tools.py     # parse_terraform_state tool
-│   │   ├── aws_tools.py           # fetch_cloud_resources tool (boto3)
-│   │   ├── diff_tools.py          # compare_resources tool (deepdiff)
-│   │   ├── policy_tools.py        # analyze_drift_with_policies tool (RAG + LLM)
-│   │   └── github_tools.py        # GitHub API tools (create_issue, search_issues, etc.)
+│   │   ├── terraform_tools.py     # Terraform state parsing
+│   │   ├── aws_tools.py           # AWS API (boto3)
+│   │   ├── diff_tools.py          # Drift comparison (deepdiff)
+│   │   ├── policy_tools.py        # RAG policy retrieval
+│   │   └── github_tools.py        # GitHub API integration
 │   ├── utils/
-│   │   ├── __init__.py
-│   │   └── teams_parser.py        # teams.yaml parser for assignee resolution
+│   │   └── teams_parser.py        # teams.yaml parser
 │   └── integrations/
-│       ├── __init__.py
-│       └── teams_notifications.py # Microsoft Teams adaptive card sender
+│       └── teams_notifications.py # Teams adaptive cards
 ├── policies/
-│   ├── tags.yaml                  # Tag requirements per environment
-│   ├── compliance.yaml            # SOC2/HIPAA/PCI framework mappings
-│   ├── security_groups.yaml       # Ingress/egress rule policies
-│   └── teams.yaml                 # Resource ownership patterns for GitHub assignees
+│   ├── tags.yaml                  # Tag requirements
+│   ├── compliance.yaml            # Framework mappings
+│   ├── security_groups.yaml       # Ingress/egress rules
+│   └── teams.yaml                 # Resource ownership
 ├── docs/
-│   └── terraform_best_practices.md # Best practices documentation
-├── vector_store/                  # Chroma vector store (auto-generated)
-├── test_infrastructure/           # Standalone Terraform configs for manual testing
-│   ├── main.tf                    # EC2 instance for drift testing
-│   ├── outputs.tf                 # 7 outputs for validation
-│   └── README.md                  # 450+ line testing guide
+│   └── terraform_best_practices.md
+├── test_infrastructure/
+│   ├── main.tf, outputs.tf, etc.  # Test resources
+│   └── README.md                  # Testing guide
 ├── tests/
-│   ├── conftest.py                # pytest fixtures (mock boto3, LLM, vector store)
-│   ├── test_terraform_tools.py    # Tests for state parsing + redaction
-│   ├── test_aws_tools.py          # Tests for AWS API calls (mocked with moto)
-│   ├── test_diff_tools.py         # Tests for drift comparison
-│   ├── test_policy_tools.py       # Tests for RAG policy analysis
-│   ├── test_github_tools.py       # Tests for GitHub API integration (mocked requests)
-│   ├── test_teams_notifications.py # Tests for Teams webhook (mocked requests)
-│   ├── test_teams_parser.py       # Tests for teams.yaml parser and assignee resolution
-│   ├── test_vector_store.py       # Tests for Chroma initialization
-│   └── test_main.py               # Integration tests for agent + CLI
-├── requirements.txt               # boto3, pyyaml, deepdiff, langchain-chroma, requests
-├── .env.example                   # AWS credentials + GitHub + Teams template
-└── README.md                      # This file
-```
-│   ├── test_vector_store.py       # Tests for Chroma initialization
-│   └── test_main.py               # Integration tests for agent + CLI
-├── requirements.txt               # boto3, pyyaml, deepdiff, langchain-chroma
-├── .env.example                   # AWS credentials template
-└── README.md                      # This file
+│   ├── conftest.py                # Fixtures
+│   ├── test_terraform_tools.py
+│   ├── test_aws_tools.py
+│   ├── test_diff_tools.py
+│   ├── test_policy_tools.py
+│   ├── test_github_tools.py
+│   ├── test_teams_notifications.py
+│   ├── test_teams_parser.py
+│   ├── test_vector_store.py
+│   └── test_main.py
+├── requirements.txt
+├── .env.example
+├── .gitignore
+└── README.md
 ```
 
 ---
 
-## Testing
+## Additional Resources
 
-All code maintains >= 75% test coverage (enforced via `pytest.ini`).
-
-### Run Tests
-
-```powershell
-# Run all tests with coverage report
-pytest --cov --cov-report=term-missing
-
-# Run specific test module
-pytest tests/test_terraform_tools.py -v
-
-# Verify >= 75% coverage threshold
-pytest --cov --cov-fail-under=75
-```
-
-### Test Strategy
-
-- **Unit tests:** All tools tested in isolation with mocked dependencies
-- **Mocking strategy:** 
-  - boto3 calls mocked with `unittest.mock.MagicMock`
-  - LLM calls mocked via `conftest.py` fixtures
-  - Vector store mocked to return predefined policy documents
-- **Integration tests:** End-to-end tests in `test_main.py` mock agent invocation but test CLI argument parsing and validation
-
-**No real AWS API calls in tests** — all boto3 clients are mocked.
+- **Planner:** [planner/03_Terraform_Drift_Detector.md](../../planner/03_Terraform_Drift_Detector.md) — Use case, approach, design
+- **LLM Integration:** [LLM_POLICY_ANALYZER_INTEGRATION.md](LLM_POLICY_ANALYZER_INTEGRATION.md) — Policy analysis details
+- **Performance:** [OPTIMIZATION_SUMMARY.md](OPTIMIZATION_SUMMARY.md) — Caching, Langfuse, optimization
+- **Testing:** [TESTING_GUIDE.md](TESTING_GUIDE.md) — Test validation procedures
+- **Best Practices:** [docs/terraform_best_practices.md](docs/terraform_best_practices.md) — Infrastructure conventions
+- **Repo Docs:** [../../docs/](../../docs/) — Common setup, LLM factory, Langfuse, vault
 
 ---
 
-## Manual Integration Testing
+## Support
 
-To test the agent end-to-end with real AWS resources, use the provided test infrastructure:
-
-### Quick Start
-
-```powershell
-# 1. Provision test EC2 instance with tags
-cd test_infrastructure
-terraform init
-terraform apply
-
-# 2. Manually remove a tag in AWS Console to simulate drift
-
-# 3. Run the agent to detect drift
-cd ..
-python src/main.py --state-file test_infrastructure/terraform.tfstate
-
-# 4. Clean up resources
-cd test_infrastructure
-terraform destroy
-```
-
-### Detailed Testing Guide
-
-See [test_infrastructure/README.md](test_infrastructure/README.md) for:
-- **Prerequisites:** AWS CLI setup, Terraform installation, IAM permissions
-- **Cost information:** Free Tier eligibility, estimated costs
-- **Step-by-step workflow:** EC2 provisioning → manual drift simulation → agent execution → cleanup
-- **Expected results:** Sample agent output with drift detection and policy violations
-- **Troubleshooting:** Common issues and solutions
-
-**Why use test infrastructure?**
-- ✅ **Isolated testing:** Self-contained AWS resources that won't affect production
-- ✅ **Reproducible drift:** Controlled environment to simulate specific drift scenarios
-- ✅ **Cost-effective:** Uses Free Tier eligible resources (t2.micro EC2 instance)
-- ✅ **Independent:** Can be deleted after testing without breaking the agent
-
----
-
-## Security Considerations
-
-1. **Terraform state secrets:** Sensitive attributes (passwords, API keys) are redacted before passing to LLM. State files marked with `"sensitive": true"` have values replaced with `[REDACTED]`.
-
-2. **AWS credentials:** Never logged or printed. Read exclusively via `require_env()` from `common/utils.py`.
-
-3. **Prompt injection:** Resource names/tags from user-controlled sources are wrapped in XML delimiters (`<drift_details>...</drift_details>`) to prevent LLM instruction injection.
-
-4. **Policy file integrity:** Policy files must be version-controlled (Git) and read-only to the agent.
-
-5. **Rate limiting:** AWS API calls throttled to 2 req/sec using `common/rate_limiter.py` to stay under AWS limits.
-
----
-
-## Advanced Usage
-
-### Custom Policy Files
-
-Add new policy files to `policies/` directory and rebuild vector store:
-
-```powershell
-# Create custom policy
-notepad policies/cost_optimization.yaml
-
-# Rebuild vector store to index new policy
-python src/main.py --check --workspace dev --rebuild-vector-store
-```
-
-**Policy file format (YAML):**
-```yaml
-environments:
-  production:
-    required_tags:
-      - name: CostCenter
-        value: "^dept-.*"
-        violations:
-          missing: "Cannot allocate costs to department budget"
-        compliance_frameworks:
-          - framework: Internal
-            section: "Cost Allocation Policy 2.3"
-```
-
-### Extending to Other Cloud Providers
-
-To add Azure/GCP support:
-
-1. Create new tool files: `src/tools/azure_tools.py`, `src/tools/gcp_tools.py`
-2. Implement resource fetchers using azure-mgmt-resource SDK or google-cloud-resource-manager
-3. Update `src/tools/__init__.py` to export new tools
-4. Add provider-specific policies to `policies/` directory
-
----
-
-## Troubleshooting
-
-### Vector Store Initialization Fails
-
-**Error:** `FileNotFoundError: Policies directory not found`
-
-**Solution:** Ensure `policies/` directory exists and contains at least one `.yaml` file.
-
-### AWS API Throttling
-
-**Error:** `AWS API rate limit exceeded`
-
-**Solution:** Reduce number of resources in state file or increase rate limit in `src/tools/aws_tools.py` (line 11: `TokenBucketRateLimiter(tokens_per_second=2)`).
-
-### LLM Hallucinating Policy Violations
-
-**Issue:** Agent reports policy violations not present in `policies/` files.
-
-**Solution:** 
-1. Verify vector store contains correct policies: `python src/main.py --check --workspace dev --rebuild-vector-store`
-2. Check `SYSTEM_PROMPT` in `src/main.py` includes grounding instructions
-3. Reduce RAG retrieval `k` parameter in `src/main.py` (line 88: `get_retriever(vector_store, k=5)`)
-
----
-
-## Future Enhancements
-
-- [ ] Support for Terraform Cloud API (remote state)
-- [ ] Azure and GCP resource drift detection
-- [x] ~~GitHub issue tracking integration~~ ✅ **Implemented (Phase 1)**
-- [x] ~~Microsoft Teams notifications~~ ✅ **Implemented (Phase 2)**
-- [ ] Automated remediation via GitHub slash commands (🚧 Phase 3 - see [Future Releases](#future-releases))
-- [ ] GitHub Actions CI/CD integration (🚧 Phase 4 - see [Future Releases](#future-releases))
-- [ ] Web UI for drift visualization (Streamlit)
-- [ ] Historical drift trend analysis
-- [ ] Slack integration (alternative to Teams)
+- **Questions?** Check [Troubleshooting](#troubleshooting) above
+- **Found a bug?** Open GitHub issue with:
+  - Error message and logs
+  - Command and arguments
+  - Terraform state file size (resource count)
+  - AWS resources being checked
+- **Contributing?** See [../../docs/contributing.md](../../docs/contributing.md)
 
 ---
 
 ## License
 
-This project is part of the Agentic AI Development Framework. See repository root LICENSE file.
-
-## Resources
-
-- [Repository Docs](../../docs/getting_started.md)
-- [LangChain Documentation](https://docs.langchain.com/)
-- [LangGraph Documentation](https://langchain-ai.github.io/langgraph/)
-- [Ollama Documentation](https://ollama.com/)
-
----
-
-## License
-
-See repository LICENSE file.
+See repository root [LICENSE](../../LICENSE) file.
