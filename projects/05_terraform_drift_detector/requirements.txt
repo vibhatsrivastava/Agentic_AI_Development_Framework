@@ -29,5 +29,8 @@ requests>=2.31.0
 # Webhook handling
 flask>=2.3.0
 
+# Environment variable management
+python-dotenv>=1.0.0
+
 # Streamlit extensions
 streamlit-extras>=0.3.0

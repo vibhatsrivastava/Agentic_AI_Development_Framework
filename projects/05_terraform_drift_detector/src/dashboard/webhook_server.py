@@ -4,12 +4,23 @@ Webhook Integration for Real-Time Dashboard Updates
 Handles GitHub webhook events and automatic dashboard refresh.
 """
 
+import sys
 import os
+from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, Callable
 from flask import Flask, request, jsonify
 import json
 import logging
+
+# Add project root to Python path for imports
+project_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(project_root))
+
+# Load environment variables from .env file BEFORE importing modules that use them
+from dotenv import load_dotenv
+load_dotenv(project_root / ".env")
+
 from src.dashboard.github_client import DriftGitHubClient
 
 
@@ -62,27 +73,38 @@ class WebhookServer:
         try:
             # Validate webhook signature
             signature = req.headers.get("X-Hub-Signature-256", "")
+            print(f"[WEBHOOK] Received GitHub event with signature: {signature[:20]}...")
+            
             if not self.github_client.validate_webhook_signature(req.data, signature):
+                print("[WEBHOOK] ❌ Invalid webhook signature")
                 self.logger.warning("Invalid webhook signature")
                 return jsonify({"error": "Invalid signature"}), 401
+            
+            print("[WEBHOOK] ✅ Signature validated")
             
             # Parse payload
             payload = req.get_json()
             event = self.github_client.parse_webhook_event(payload)
             
             if not event:
+                print("[WEBHOOK] ℹ️ Event ignored (no terraform-drift labels)")
                 return jsonify({"status": "ignored"}), 200
             
             # Log event
+            print(f"[WEBHOOK] 🎯 Event processed: {event['action']} for issue #{event['issue_number']}")
             self.logger.info(f"Webhook event received: {event['action']} for issue #{event['issue_number']}")
             
             # Trigger refresh callback if registered
             if self.refresh_callback:
+                print("[WEBHOOK] 📣 Triggering dashboard refresh callback")
                 self.refresh_callback(event)
+            else:
+                print("[WEBHOOK] ⚠️ No callback registered - dashboard won't refresh")
             
             return jsonify({"status": "processed", "event": event}), 200
         
         except Exception as e:
+            print(f"[WEBHOOK] ❌ Error processing webhook: {e}")
             self.logger.error(f"Error processing webhook: {e}")
             return jsonify({"error": str(e)}), 500
     
@@ -98,6 +120,9 @@ class WebhookServer:
     def run(self):
         """Start webhook server."""
         self.logger.info(f"Starting webhook server on port {self.port}")
+        print(f"[WEBHOOK] 🚀 Starting webhook server on http://0.0.0.0:{self.port}")
+        print(f"[WEBHOOK] 📍 Webhook endpoint: POST http://YOUR_IP:{self.port}/webhook")
+        print(f"[WEBHOOK] 🏥 Health check: GET http://YOUR_IP:{self.port}/health")
         self.app.run(host="0.0.0.0", port=self.port, debug=self.debug)
 
 

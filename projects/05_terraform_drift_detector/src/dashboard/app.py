@@ -4,14 +4,28 @@ Terraform Drift Analyzer Dashboard
 Main Streamlit application for monitoring drift detection and remediation activities.
 """
 
+import sys
+import os
+from pathlib import Path
+import threading
+import time
+
+# Add project root to Python path for imports
+project_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(project_root))
+
+# Load environment variables from .env file BEFORE importing modules that use them
+from dotenv import load_dotenv
+load_dotenv(project_root / ".env")
+
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
-import os
 
 from src.dashboard.github_client import DriftGitHubClient
 from src.dashboard.models import DriftRecord, DriftRecordParser, DriftRecordAnalytics
+from src.dashboard.webhook_server import WebhookServer, WebhookConfig
 
 
 # Page Configuration
@@ -76,15 +90,8 @@ class DashboardUI:
     @staticmethod
     def render_header():
         """Render dashboard header."""
-        col1, col2 = st.columns([3, 1])
-        
-        with col1:
-            st.title("🔄 Terraform Drift Analyzer Dashboard")
-            st.markdown("Monitor infrastructure drift detection and remediation in real-time")
-        
-        with col2:
-            if st.button("🔄 Refresh Data", key="refresh_btn"):
-                st.rerun()
+        st.title("🔄 Terraform Drift Analyzer Dashboard")
+        st.markdown("Monitor infrastructure drift detection and remediation in real-time")
     
     @staticmethod
     def render_metrics(metrics: Dict):
@@ -203,11 +210,10 @@ class DashboardUI:
         table_data = []
         for record in records:
             table_data.append({
-                "Drift ID": record.drift_id,
                 "Resource": f"{record.resource_name} ({record.resource_type})",
                 "Severity": record.severity,
                 "Status": record.remediation_status,
-                "Detection Time": record.detection_timestamp[:10],
+                "Detection Time": record.detection_timestamp,
                 "Issue #": f"[#{record.github_issue_number}]({record.github_issue_url})",
                 "Age": DashboardUI._calculate_age(record.detection_timestamp),
             })
@@ -233,11 +239,10 @@ class DashboardUI:
         for record in records:
             duration = record.get_resolution_duration()
             table_data.append({
-                "Drift ID": record.drift_id,
                 "Resource": f"{record.resource_name} ({record.resource_type})",
                 "Severity": record.severity,
-                "Detection": record.detection_timestamp[:10],
-                "Resolved": record.closed_at[:10] if record.closed_at else "N/A",
+                "Detection": record.detection_timestamp,
+                "Resolved": record.closed_at if record.closed_at else "N/A",
                 "Duration": duration or "N/A",
                 "Issue #": f"[#{record.github_issue_number}]({record.github_issue_url})",
             })
@@ -293,6 +298,15 @@ class DashboardUI:
             return "N/A"
 
 
+# Initialize session state for webhook events
+if "webhook_event" not in st.session_state:
+    st.session_state.webhook_event = None
+if "last_webhook_update" not in st.session_state:
+    st.session_state.last_webhook_update = None
+if "webhook_triggered_refresh" not in st.session_state:
+    st.session_state.webhook_triggered_refresh = False
+
+
 def fetch_drift_data(github_client: DriftGitHubClient, repo_owner: str, 
                      repo_name: str) -> List[DriftRecord]:
     """Fetch drift data from GitHub and return as DriftRecord objects."""
@@ -328,6 +342,44 @@ def main():
         st.info("Please set the GITHUB_TOKEN environment variable")
         return
     
+    # Initialize webhook server if enabled
+    webhook_config = WebhookConfig()
+    webhook_server = None
+    webhook_thread = None
+    webhook_status = "⚪ Disabled"
+    webhook_port_display = ""
+    
+    if webhook_config.enable_webhook and webhook_config.is_valid():
+        try:
+            # Initialize webhook server
+            webhook_server = WebhookServer(port=webhook_config.webhook_port, debug=False)
+            
+            # Register callback to refresh dashboard when webhook events arrive
+            def on_webhook_event(event):
+                """Callback triggered when GitHub webhook event is received."""
+                print(f"[DASHBOARD] 🔄 Webhook callback triggered for issue #{event.get('issue_number')}")
+                st.session_state.webhook_event = event
+                st.session_state.last_webhook_update = datetime.now().isoformat()
+                st.session_state.webhook_triggered_refresh = True  # Flag for rerun
+                print(f"[DASHBOARD] ✅ Refresh flag set - dashboard will rerun on next check")
+            
+            webhook_server.register_refresh_callback(on_webhook_event)
+            
+            # Start webhook server in background thread
+            webhook_thread = threading.Thread(
+                target=webhook_server.run,
+                daemon=True,
+                name="WebhookServer"
+            )
+            webhook_thread.start()
+            
+            webhook_status = "🟢 Connected"
+            webhook_port_display = f":{webhook_config.webhook_port}"
+        except Exception as e:
+            st.warning(f"Failed to start webhook server: {e}")
+            webhook_status = "🔴 Error"
+            webhook_port_display = ""
+    
     # Get configuration
     repo_owner = os.getenv("GITHUB_REPO_OWNER", "")
     repo_name = os.getenv("GITHUB_REPO_NAME", "")
@@ -336,6 +388,11 @@ def main():
         st.error("Configuration Missing")
         st.info("Please set GITHUB_REPO_OWNER and GITHUB_REPO_NAME environment variables")
         return
+    
+    # Check if webhook event triggered a refresh and perform rerun
+    if st.session_state.webhook_triggered_refresh:
+        st.session_state.webhook_triggered_refresh = False
+        st.rerun()
     
     # Render header
     DashboardUI.render_header()
@@ -351,6 +408,32 @@ def main():
         value=60,
         step=10
     )
+    
+    # Manual refresh button
+    if st.sidebar.button("🔄 Refresh Data", use_container_width=True):
+        st.rerun()
+    
+    # Webhook status indicator
+    if webhook_config.enable_webhook:
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("### 🔗 Webhook Status")
+        st.sidebar.markdown(f"**Status:** {webhook_status}")
+        if webhook_port_display:
+            st.sidebar.markdown(f"**Port:** {webhook_port_display}")
+        
+        # Show last webhook event if received
+        if "last_webhook_update" in st.session_state and st.session_state.last_webhook_update:
+            last_update = st.session_state.get("last_webhook_update", "N/A")
+            st.sidebar.caption(f"Last update: {last_update}")
+        
+        if "webhook_event" in st.session_state and st.session_state.webhook_event:
+            event = st.session_state.webhook_event
+            st.sidebar.info(
+                f"✅ Event received:\n"
+                f"**Action:** {event.get('action')}\n"
+                f"**Issue:** #{event.get('issue_number')}\n"
+                f"**Title:** {event.get('issue_title', 'N/A')[:50]}"
+            )
     
     # Fetch data
     with st.spinner("Fetching drift data..."):
@@ -370,7 +453,7 @@ def main():
     filters = DashboardUI.render_filter_sidebar()
     
     # Create tabs for different views
-    tab1, tab2, tab3 = st.tabs(["Active Drifts", "Resolved Drifts", "Details"])
+    tab1, tab2 = st.tabs(["Active Drifts", "Resolved Drifts"])
     
     with tab1:
         active_records = [r for r in records if r.is_active()]
@@ -381,18 +464,6 @@ def main():
         resolved_records = [r for r in records if r.is_resolved()]
         filtered_resolved = DashboardUI.apply_filters(resolved_records, filters)
         DashboardUI.render_resolved_drift_table(filtered_resolved)
-    
-    with tab3:
-        st.subheader("📋 Drift Details")
-        
-        if records:
-            # Create selector for drift record
-            options = {f"{r.drift_id} - {r.resource_name}": r for r in records}
-            selected = st.selectbox("Select drift record", options=list(options.keys()))
-            
-            if selected:
-                record = options[selected]
-                DashboardUI.render_drift_details(record)
     
     # Footer
     st.divider()
@@ -406,9 +477,6 @@ def main():
     
     with col3:
         st.caption(f"Total records: {len(records)}")
-    
-    # Auto-refresh using streamlit's scheduled rerun
-    st.cache_data(ttl=refresh_interval).clear()
 
 
 if __name__ == "__main__":

@@ -107,6 +107,7 @@ class DriftRecordParser:
     def validate_record(record: Dict) -> bool:
         """
         Validate drift record has required fields.
+        For closed issues, allow partial metadata.
         
         Args:
             record: Dictionary with drift record data
@@ -114,6 +115,16 @@ class DriftRecordParser:
         Returns:
             True if valid, False otherwise
         """
+        # Closed issues need fewer fields (we will auto-fill missing ones)
+        if record.get("github_issue_status") == "closed":
+            required_fields = [
+                "github_issue_number",
+                "github_issue_status",
+                "github_issue_url",
+            ]
+            return all(field in record and record[field] for field in required_fields)
+        
+        # Open issues require complete metadata
         required_fields = [
             "drift_id",
             "resource_name",
@@ -133,6 +144,7 @@ class DriftRecordParser:
     def enrich_record(record: Dict) -> DriftRecord:
         """
         Enrich raw record with calculated fields.
+        Auto-generates missing fields for closed issues.
         
         Args:
             record: Raw drift record dictionary
@@ -140,14 +152,23 @@ class DriftRecordParser:
         Returns:
             Enriched DriftRecord object
         """
+        issue_num = record.get("github_issue_number", 0)
+        
+        # Auto-fill missing fields for closed issues
+        drift_id = record.get("drift_id") or f"issue-{issue_num}"
+        resource_name = record.get("resource_name") or f"Unknown (#{issue_num})"
+        resource_type = record.get("resource_type") or "unknown"
+        detection_timestamp = record.get("detection_timestamp") or record.get("created_at", "")
+        drift_description = record.get("drift_description") or record.get("github_issue_url", "")
+        
         return DriftRecord(
-            drift_id=record.get("drift_id", ""),
-            resource_name=record.get("resource_name", ""),
-            resource_type=record.get("resource_type", ""),
+            drift_id=drift_id,
+            resource_name=resource_name,
+            resource_type=resource_type,
             severity=record.get("severity", "Medium"),
-            drift_description=record.get("drift_description", ""),
-            detection_timestamp=record.get("detection_timestamp", ""),
-            github_issue_number=record.get("github_issue_number", 0),
+            drift_description=drift_description,
+            detection_timestamp=detection_timestamp,
+            github_issue_number=issue_num,
             github_issue_status=record.get("github_issue_status", "open"),
             github_issue_url=record.get("github_issue_url", ""),
             remediation_status=record.get("remediation_status", "DETECTED"),

@@ -183,7 +183,7 @@ LOG_LEVEL=INFO
 LANGFUSE_ENABLED=true
 LANGFUSE_PUBLIC_KEY=pk-lf-...
 LANGFUSE_SECRET_KEY=sk-lf-...
-LANGFUSE_HOST=http://10.0.0.15:3000
+LANGFUSE_HOST=https://your-langfuse-host:3000
 ```
 
 ### Step 2: AWS IAM Permissions
@@ -594,57 +594,275 @@ The EC2 instance is missing the required Environment tag...
 
 ### Webhook Integration (Optional)
 
-Enable real-time dashboard updates via GitHub webhooks.
+Enable real-time dashboard updates via GitHub webhooks. When enabled, the dashboard automatically refreshes whenever drift issues are created, updated, or closed on GitHub.
 
-#### Setup Instructions
+#### Overview
 
-##### Step 1: Generate Webhook Secret
+Webhooks allow GitHub to notify your dashboard server of events in real-time. Instead of polling GitHub every 60 seconds, webhooks push notifications to your server immediately when events occur.
 
-```powershell
-# Generate a random webhook secret (run in PowerShell)
-$bytes = New-Object Byte[] 32
-(New-Object Security.Cryptography.RNGCryptoServiceProvider).GetBytes($bytes)
-[Convert]::ToBase64String($bytes)
+**Architecture:**
+```
+GitHub (Event Occurs)
+    ↓
+GitHub Webhook Server (Delivers event to your URL)
+    ↓
+Your Machine (http://your-ip:5000/webhook)
+    ↓
+Streamlit Dashboard (Automatically refreshes)
 ```
 
-Copy the output and add to `.env`:
+#### Step 1: Generate Webhook Secret
+
+A webhook secret is a secure token that GitHub uses to sign webhook requests. This proves that webhook events are genuinely from GitHub.
+
+**Generate in PowerShell:**
+
+```powershell
+# Open PowerShell and run:
+$bytes = New-Object Byte[] 32
+(New-Object Security.Cryptography.RNGCryptoServiceProvider).GetBytes($bytes)
+$secret = [Convert]::ToBase64String($bytes)
+Write-Host "Your webhook secret:"
+Write-Host $secret
+```
+
+**Example output:**
+```
+Your webhook secret:
+aBcDeFgHiJkLmNoPqRsTuVwXyZ1234567890AbCdEfGhIjKl==
+```
+
+Copy this secret and update your `.env` file:
+
 ```env
 GITHUB_WEBHOOK_SECRET=your_generated_secret
 ENABLE_WEBHOOK=true
 WEBHOOK_PORT=5000
 ```
 
-##### Step 2: Configure GitHub Webhook
+#### Step 2: Find Your Machine IP Address
 
-1. Go to GitHub Repository → Settings → Webhooks
-2. Click "Add webhook"
-3. Configure:
-   - **Payload URL:** `http://your-server:5000/webhook`
-   - **Content type:** `application/json`
-   - **Secret:** Paste your webhook secret
-   - **Events:** Select "Let me select individual events"
-     - ✅ Issue comments
-     - ✅ Issues
-     - ✅ Pull requests
-   - **Active:** ✅ Checked
+GitHub needs to know where to send webhook events. You need your machine's IP address on the network.
 
-4. Click "Add webhook"
-
-##### Step 3: Run Dashboard with Webhook Support
+**Find your IP in PowerShell:**
 
 ```powershell
-# Start webhook server in background
-# Note: Currently webhook is integrated; see webhook_server.py
+# Run this command:
+ipconfig
 
-# Run dashboard normally
+# Look for the "IPv4 Address" in your active network adapter
+# Example output:
+# IPv4 Address. . . . . . . . . . . : 192.168.1.100
+# or
+# IPv4 Address. . . . . . . . . . . : 10.0.0.50
+```
+
+**If accessing from outside your network:**
+- You need your public IP (from `https://ipinfo.io`)
+- OR configure port forwarding on your router
+- OR use a service like ngrok for tunneling
+
+**For local testing on same network:**
+- Use your local IPv4 address (192.168.x.x or 10.x.x.x)
+
+#### Step 3: Configure GitHub Webhook
+
+1. **Open your GitHub repository:**
+   - Navigate to: `https://github.com/YOUR_ORG/YOUR_REPO`
+   - Click **Settings** (tab at top)
+
+2. **Access Webhooks:**
+   - In left sidebar, click **Webhooks**
+   - Or go to: `https://github.com/YOUR_ORG/YOUR_REPO/settings/hooks`
+
+3. **Click "Add webhook" button**
+
+4. **Fill in the webhook configuration:**
+
+| Field | Value | Example |
+|-------|-------|---------|
+| **Payload URL** | `http://YOUR_IP:5000/webhook` | `http://192.168.1.100:5000/webhook` |
+| **Content type** | `application/json` | (select from dropdown) |
+| **Secret** | Your generated secret | `aBcDeFgHiJkLmNoPqRsTuVwXyZ1234567890AbCdEfGhIjKl==` |
+| **Events** | "Let me select individual events" | (select option) |
+| **Active** | ✅ Checked | (checkbox) |
+
+5. **Select Events:**
+   After choosing "Let me select individual events", check these:
+   - ✅ **Issues** — Detects when drift issues are created/closed/reopened
+   - ✅ **Issue comments** — Tracks updates to drift issues
+   - ✅ **Pull requests** — (optional, for drift PR updates)
+
+6. **Click "Add webhook" button** (green button at bottom)
+
+**Screenshot locations (if needed):**
+- Settings tab: Top of repository page, right side menu
+- Webhooks link: Left sidebar under "Code & automation"
+- Add webhook: Large green button on webhooks page
+
+#### Step 4: Verify Webhook Configuration
+
+Once the webhook is created, GitHub will show you a "Recent Deliveries" section.
+
+**Check webhook delivery:**
+
+1. Go back to the webhook settings page
+2. Click on your newly created webhook
+3. Scroll down to "Recent Deliveries" section
+4. Look for test events with status codes:
+   - ✅ **200** — Successful delivery
+   - ❌ **Other codes** — Check dashboard logs for errors
+
+**If you see failed deliveries (non-200 status):**
+
+Common issues and solutions:
+- **Network unreachable** — Verify machine IP is correct and accessible
+- **Connection refused** — Dashboard not running on port 5000
+- **Signature verification failed** — Check webhook secret matches in `.env`
+
+#### Step 5: Enable Webhook in Dashboard
+
+Update your `.env` file:
+
+```env
+# Dashboard Settings
+GITHUB_WEBHOOK_SECRET=your_generated_secret
+WEBHOOK_PORT=5000
+ENABLE_WEBHOOK=true
+DASHBOARD_REFRESH_INTERVAL=60
+```
+
+Then start the dashboard:
+
+```powershell
+# Activate virtual environment
+.\.venv\Scripts\Activate.ps1
+
+# Run dashboard (includes webhook server)
 streamlit run src/dashboard/app.py
 ```
 
-**Webhook Events Processed:**
-- `opened` — New drift issue created
-- `edited` — Issue updated with new information
-- `closed` — Drift remediated and issue closed
-- `reopened` — Drift reappeared after remediation
+**Expected console output:**
+```
+Starting webhook server on port 5000
+Collecting...
+  You can now view your Streamlit app in your browser.
+  Local URL: http://localhost:8501
+```
+
+#### Step 6: Test the Webhook
+
+**Test 1: Manual webhook trigger from GitHub**
+
+1. Go to your webhook settings
+2. Click on the webhook
+3. Scroll to "Recent Deliveries"
+4. Click on any recent delivery
+5. Click "Redeliver" button
+6. Watch your dashboard logs for delivery confirmation
+
+**Test 2: Create/update a drift issue**
+
+1. Create a new GitHub issue in your repository
+2. Add label: `terraform-drift`
+3. Watch your dashboard — should appear automatically
+4. Update the issue (add severity label)
+5. Dashboard should refresh within seconds
+6. Close the issue
+7. Issue should move to "Resolved Drifts" tab
+
+**Test 3: Check webhook deliveries in GitHub**
+
+```powershell
+# You can also query recent deliveries via GitHub API:
+$token = "YOUR_GITHUB_TOKEN"
+$headers = @{Authorization = "token $token"}
+
+# List recent webhook deliveries:
+Invoke-WebRequest -Uri "https://api.github.com/repos/YOUR_ORG/YOUR_REPO/hooks" `
+  -Headers $headers | ConvertFrom-Json
+```
+
+#### Webhook Events Processed
+
+The dashboard automatically handles these GitHub events:
+
+| Event | Action | Result |
+|-------|--------|--------|
+| `opened` | New drift issue created | Appears in Active Drifts tab |
+| `labeled` | Label added (severity, status) | Metadata updated |
+| `unlabeled` | Label removed | Metadata updated |
+| `edited` | Issue title/body changed | Description refreshed |
+| `closed` | Drift remediated | Moves to Resolved Drifts tab |
+| `reopened` | Issue reopened | Returns to Active Drifts tab |
+
+#### Complete Webhook Configuration Checklist
+
+```
+PREREQUISITE SETUP:
+- [ ] Virtual environment created and activated
+- [ ] pip install -r requirements.txt completed
+- [ ] All required environment variables set in .env
+
+WEBHOOK SECRET GENERATION:
+- [ ] Generated secure 32-byte secret in PowerShell
+- [ ] Copied secret to GITHUB_WEBHOOK_SECRET in .env
+- [ ] Secret is 44 characters long (base64 encoded)
+
+GITHUB CONFIGURATION:
+- [ ] Identified machine IP address (ipconfig)
+- [ ] Accessed GitHub repository settings
+- [ ] Created webhook with correct payload URL
+- [ ] Entered webhook secret in GitHub
+- [ ] Selected individual events (Issues, Issue comments)
+- [ ] Webhook marked as Active (✅)
+
+VERIFICATION:
+- [ ] GitHub shows webhook created
+- [ ] Recent deliveries show status 200 (if available)
+- [ ] Dashboard starts without webhook errors
+- [ ] Port 5000 is accessible from GitHub
+
+TESTING:
+- [ ] Created test issue with terraform-drift label
+- [ ] Verified issue appears in Active Drifts tab
+- [ ] Updated issue labels and saw refresh
+- [ ] Closed issue and saw move to Resolved Drifts
+- [ ] GitHub recent deliveries show successful delivery
+```
+
+#### Webhook Troubleshooting
+
+**Issue: Dashboard starts but webhook not receiving events**
+
+```powershell
+# Check if webhook server is listening
+netstat -ano | findstr :5000
+
+# Should show: LISTENING on port 5000
+```
+
+**Issue: GitHub shows failed deliveries**
+
+1. **Check firewall:** Windows Defender/Third-party firewall blocking port 5000
+2. **Check IP address:** Verify machine IP hasn't changed since webhook creation
+3. **Check dashboard logs:** Look for "Webhook event received" messages
+4. **Test connectivity:** 
+   ```powershell
+   # From another machine on same network:
+   curl http://YOUR_IP:5000/health
+   # Should return: {"status":"healthy",...}
+   ```
+
+**Issue: Events not processing in dashboard**
+
+1. Check `.env` has `ENABLE_WEBHOOK=true`
+2. Verify `GITHUB_WEBHOOK_SECRET` matches GitHub settings exactly
+3. Check issue has `terraform-drift` label (case-sensitive)
+4. Review dashboard console for parsing errors
+5. Verify issue body matches expected format (see GitHub Issue Format section)
+
+---
 
 ### Testing the Dashboard
 
@@ -1034,7 +1252,7 @@ View detailed traces in Langfuse dashboard:
 # Run drift check
 python src/main.py --check --workspace prod
 
-# Open dashboard: http://10.0.0.15:3000
+# Open dashboard: https://your-langfuse-host:3000
 # Sessions tab → Filter by workspace name
 # Review LLM calls, cache hit rates, latency breakdown
 ```
@@ -1121,7 +1339,7 @@ python src/main.py --check --workspace prod
 2. Rebuild vector store if low hit rates
 3. Check Ollama response time: `time curl http://localhost:11434/api/tags`
 4. Check AWS API: `time aws ec2 describe-instances`
-5. View Langfuse traces: http://10.0.0.15:3000
+5. View Langfuse traces: https://your-langfuse-host:3000
 
 ---
 

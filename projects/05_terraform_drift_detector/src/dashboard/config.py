@@ -3,7 +3,9 @@ Configuration utilities for the Terraform Drift Analyzer Dashboard
 """
 
 import os
+from pathlib import Path
 from typing import Optional
+from dotenv import load_dotenv
 
 
 class DashboardConfig:
@@ -11,6 +13,11 @@ class DashboardConfig:
     
     def __init__(self):
         """Initialize configuration from environment variables."""
+        # Load .env file from project root
+        project_root = Path(__file__).parent.parent.parent
+        env_file = project_root / ".env"
+        if env_file.exists():
+            load_dotenv(env_file)
         # GitHub configuration
         self.github_token = os.getenv("GITHUB_TOKEN")
         self.github_repo_owner = os.getenv("GITHUB_REPO_OWNER", "")

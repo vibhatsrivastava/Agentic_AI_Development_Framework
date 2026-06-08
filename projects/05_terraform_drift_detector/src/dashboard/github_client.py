@@ -46,10 +46,26 @@ class DriftGitHubClient:
         """
         try:
             repo = self.github.get_user(repo_owner).get_repo(repo_name)
-            issues = repo.get_issues(state=state, labels="terraform-drift")
+            # Look for both 'terraform-drift' and 'infrastructure-drift' labels
+            issues_terraform = repo.get_issues(state=state, labels=["terraform-drift"])
+            issues_infra = repo.get_issues(state=state, labels=["infrastructure-drift"])
+            
+            # Combine issues (avoiding duplicates)
+            seen_numbers = set()
+            all_issues = []
+            
+            for issue in issues_terraform:
+                if issue.number not in seen_numbers:
+                    all_issues.append(issue)
+                    seen_numbers.add(issue.number)
+            
+            for issue in issues_infra:
+                if issue.number not in seen_numbers:
+                    all_issues.append(issue)
+                    seen_numbers.add(issue.number)
             
             drift_records = []
-            for issue in issues:
+            for issue in all_issues:
                 drift_record = self._parse_issue_to_drift(issue)
                 if drift_record:
                     drift_records.append(drift_record)
@@ -63,14 +79,10 @@ class DriftGitHubClient:
         """
         Parse GitHub issue into drift record.
         
-        Expects issue body to contain structured data with the following format:
-        - Drift ID: <id>
-        - Resource Name: <name>
-        - Resource Type: <type>
-        - Severity: <severity>
-        - Detection Timestamp: <timestamp>
-        - Current Status: <status>
-        - Teams Notification Status: <notification_status>
+        Supports multiple formats:
+        1. Old format with "Field: value" pattern
+        2. New format with backtick-delimited values (e.g., `value`)
+        3. Title-based parsing for resource name and type
         
         Args:
             issue: GitHub Issue object
@@ -81,16 +93,36 @@ class DriftGitHubClient:
         try:
             body = issue.body or ""
             labels = [label.name for label in issue.labels]
+            title = issue.title or ""
+            
+            # Extract Drift ID from title or body (e.g., "Drift: aws_instance.drift_test")
+            drift_id = self._extract_field(body, "Drift ID") or self._extract_from_title(title)
+            
+            # Extract resource info from backtick format or colon format
+            resource_name = self._extract_backtick_field(body, "Resource Name") or self._extract_field(body, "Resource Name")
+            resource_type = self._extract_backtick_field(body, "Resource Type") or self._extract_field(body, "Resource Type")
+            
+            # Fallback: extract from title if not found in body
+            if not resource_name or not resource_type:
+                title_resource = self._parse_title_for_resource(title)
+                if not resource_name:
+                    resource_name = title_resource.get("name")
+                if not resource_type:
+                    resource_type = title_resource.get("type")
+            
+            # Ensure we have a drift_id even if not explicitly stated
+            if not drift_id and resource_name:
+                drift_id = f"{resource_type}.{resource_name}" if resource_type else resource_name
             
             # Extract basic info from issue
             drift_record = {
-                "drift_id": self._extract_field(body, "Drift ID"),
-                "resource_name": self._extract_field(body, "Resource Name"),
-                "resource_type": self._extract_field(body, "Resource Type"),
+                "drift_id": drift_id or f"drift-{issue.number}",
+                "resource_name": resource_name or "",
+                "resource_type": resource_type or "",
                 "severity": self._extract_severity(labels),
-                "drift_description": self._extract_field(body, "Drift Description") 
-                                   or issue.body[:200] if issue.body else "",
+                "drift_description": self._extract_drift_type(body) or issue.title or "",
                 "detection_timestamp": self._parse_timestamp(
+                    self._extract_backtick_field(body, "Detection Timestamp") or 
                     self._extract_field(body, "Detection Timestamp") or ""
                 ) or issue.created_at.isoformat(),
                 "github_issue_number": issue.number,
@@ -113,6 +145,63 @@ class DriftGitHubClient:
         """Extract field value from issue body."""
         for line in body.split("\n"):
             if field_name in line:
+                parts = line.split(":", 1)
+                if len(parts) == 2:
+                    return parts[1].strip()
+        return None
+    
+    @staticmethod
+    def _extract_backtick_field(body: str, field_name: str) -> Optional[str]:
+        """Extract field value from backtick-delimited format (e.g., Resource Name: `value`)."""
+        for line in body.split("\n"):
+            if field_name in line:
+                # Extract content between backticks
+                if "`" in line:
+                    start = line.find("`")
+                    end = line.find("`", start + 1)
+                    if start != -1 and end != -1 and start < end:
+                        return line[start+1:end].strip()
+                # Fallback to colon-based extraction
+                parts = line.split(":", 1)
+                if len(parts) == 2:
+                    value = parts[1].strip()
+                    # Remove backticks if present
+                    if value.startswith("`") and value.endswith("`"):
+                        value = value[1:-1]
+                    return value
+        return None
+    
+    @staticmethod
+    def _extract_from_title(title: str) -> Optional[str]:
+        """Extract drift ID from issue title (e.g., 'Drift: aws_instance.drift_test - tags_modified')."""
+        if "Drift:" in title:
+            parts = title.split("Drift:", 1)
+            if len(parts) == 2:
+                # Extract the resource identifier (before the hyphen)
+                drift_part = parts[1].strip().split(" - ")[0].strip()
+                return drift_part if drift_part else None
+        return None
+    
+    @staticmethod
+    def _parse_title_for_resource(title: str) -> dict:
+        """Parse title to extract resource type and name."""
+        result: Dict[str, Optional[str]] = {"type": None, "name": None}
+        
+        if "Drift:" in title:
+            # Format: "Drift: aws_instance.drift_test - tags_modified"
+            parts = title.split("Drift:", 1)[1].split(" - ")[0].strip()
+            if "." in parts:
+                resource_type, resource_name = parts.split(".", 1)
+                result["type"] = resource_type.strip()
+                result["name"] = resource_name.strip()
+        
+        return result
+    
+    @staticmethod
+    def _extract_drift_type(body: str) -> Optional[str]:
+        """Extract drift type from body (e.g., 'tags_modified' from 'Type: tags_modified')."""
+        for line in body.split("\n"):
+            if "Type:" in line and "Resource Type:" not in line:
                 parts = line.split(":", 1)
                 if len(parts) == 2:
                     return parts[1].strip()
