@@ -18,3 +18,16 @@ markdown>=3.5.0
 
 # Document parsing for unstructured data
 unstructured
+
+# Dashboard Framework
+streamlit>=1.28.0
+
+# GitHub Integration
+PyGithub>=2.1.0
+requests>=2.31.0
+
+# Webhook handling
+flask>=2.3.0
+
+# Streamlit extensions
+streamlit-extras>=0.3.0

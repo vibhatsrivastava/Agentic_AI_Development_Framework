@@ -16,12 +16,13 @@ An intelligent drift detection agent that identifies discrepancies between Terra
 4. [Setup & Configuration](#setup--configuration)
 5. [Usage Guide](#usage-guide)
 6. [CLI Reference](#cli-reference)
-7. [Integration Features](#integration-features)
-8. [Policy Management](#policy-management)
-9. [Testing & Validation](#testing--validation)
-10. [Troubleshooting](#troubleshooting)
-11. [Future Phases](#future-phases)
-12. [Project Structure](#project-structure)
+7. [Dashboard Enhancement](#dashboard-enhancement) ⭐ NEW
+8. [Integration Features](#integration-features)
+9. [Policy Management](#policy-management)
+10. [Testing & Validation](#testing--validation)
+11. [Troubleshooting](#troubleshooting)
+12. [Future Phases](#future-phases)
+13. [Project Structure](#project-structure)
 
 ---
 
@@ -374,6 +375,492 @@ python src/main.py --check --workspace test --rebuild-vector-store
 
 ---
 
+## Dashboard Enhancement
+
+### Overview
+
+The **Streamlit Dashboard** provides real-time visibility into Terraform drift detection and remediation activities. It displays active and resolved drift issues, metrics, and detailed views—all powered by GitHub as the system of record.
+
+**Key Features:**
+- ✅ **Real-time drift monitoring** — View all detected infrastructure drifts in one place
+- ✅ **Interactive dashboard** — Filter by severity, status, and remediation state
+- ✅ **Summary metrics** — Total active/resolved drifts, critical count, average resolution time
+- ✅ **Detailed views** — Drill-down into individual drift records with full context
+- ✅ **GitHub integration** — Automatic synchronization with GitHub issues
+- ✅ **Webhook support** — Real-time updates via GitHub webhook events (optional)
+- ✅ **Multi-view layout** — Active drifts, resolved drifts, and detailed views
+
+### Dashboard Architecture
+
+```
+GitHub Issues (System of Record)
+        ↓
+Streamlit Dashboard (Web UI)
+        ↓
+Real-time Updates via Webhooks (Optional)
+```
+
+The dashboard retrieves drift information from GitHub issues created by the Terraform Drift Analyzer agent and displays them in an interactive web interface. No additional database is required.
+
+### Quick Start: Running the Dashboard
+
+#### 1. Install Dependencies
+
+```powershell
+# Activate virtual environment
+.\.venv\Scripts\Activate.ps1
+
+# Install dashboard dependencies (already in requirements.txt)
+pip install -r requirements.txt
+```
+
+#### 2. Configure Environment Variables
+
+Create a `.env` file with the following variables:
+
+```env
+# GitHub Configuration (REQUIRED)
+GITHUB_TOKEN=ghp_your_personal_access_token
+GITHUB_REPO_OWNER=your_org_name
+GITHUB_REPO_NAME=your_repo_name
+
+# Webhook Configuration (OPTIONAL)
+GITHUB_WEBHOOK_SECRET=your_webhook_secret
+WEBHOOK_PORT=5000
+ENABLE_WEBHOOK=false
+
+# Dashboard Settings (OPTIONAL)
+DASHBOARD_REFRESH_INTERVAL=60
+DASHBOARD_PAGE_SIZE=50
+DEBUG=false
+```
+
+**How to generate `GITHUB_TOKEN`:**
+1. Go to GitHub → Settings → Developer Settings → Personal Access Tokens
+2. Create "Tokens (classic)" with `repo` scope
+3. Copy the token and add to `.env`
+
+#### 3. Run the Dashboard
+
+```powershell
+# Navigate to project root
+cd projects/05_terraform_drift_detector
+
+# Run Streamlit dashboard
+streamlit run src/dashboard/app.py
+
+# Dashboard will be available at: http://localhost:8501
+```
+
+**Expected output:**
+```
+Collecting... [32m✔ [0m
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://your-machine-ip:8501
+```
+
+### Dashboard Views
+
+#### 📊 Summary Metrics Tab (Default)
+
+Displays key performance indicators:
+- **Total Active** — Number of open drift issues
+- **Total Resolved** — Number of closed/remediated drift issues
+- **Critical** — Count of critical severity drifts
+- **High Severity** — Count of high severity drifts
+- **Avg Resolution** — Average time to resolve drifts
+
+#### 🚨 Active Drifts Tab
+
+Shows all open drift issues with interactive filtering:
+
+| Column | Description |
+|--------|-------------|
+| Drift ID | Unique identifier for the drift |
+| Resource | Resource name and type |
+| Severity | Critical/High/Medium/Low |
+| Status | Remediation lifecycle status |
+| Detection Time | When drift was detected |
+| Issue # | Link to GitHub issue |
+| Age | Time since detection |
+
+**Filtering Options:**
+- By severity level (Critical, High, Medium, Low)
+- By remediation status (DETECTED, ISSUE_CREATED, NOTIFIED, REMEDIATION_RUNNING, VALIDATION_RUNNING, RESOLVED)
+- Multi-select filters for combined searches
+
+**Interactive Features:**
+- Click on issue number to view in GitHub
+- Sort by clicking column headers
+- Search within the table
+
+#### ✅ Resolved Drifts Tab
+
+Historical view of remediated drifts:
+
+| Column | Description |
+|--------|-------------|
+| Drift ID | Unique identifier |
+| Resource | Resource name and type |
+| Severity | Original severity level |
+| Detection | When drift was first detected |
+| Resolved | When drift was remediated |
+| Duration | Time to resolution (days/hours/minutes) |
+| Issue # | Link to GitHub issue |
+
+#### 📋 Details Tab
+
+Detailed view for individual drift records:
+
+```
+Drift ID: drift-prod-ec2-001
+Resource: prod-web-server (aws_instance)
+Type: aws_instance
+Severity: Critical
+Status: REMEDIATION_RUNNING
+Issue: #456
+Detected: 2026-06-08T10:30:00
+
+Description:
+The EC2 instance is missing required tags that are mandated 
+by production policy. Environment and ManagedBy tags are absent.
+
+Resolution Time: 2 hours 15 minutes
+```
+
+### Filtering and Search
+
+#### Sidebar Filters
+
+The left sidebar provides filter controls:
+
+```
+Filters
+├─ Drift Status: Active / Resolved / All
+├─ Severity Level: Critical / High / Medium / Low
+└─ Remediation Status: (multi-select)
+    ├─ DETECTED
+    ├─ ISSUE_CREATED
+    ├─ NOTIFIED
+    ├─ REMEDIATION_RUNNING
+    ├─ VALIDATION_RUNNING
+    └─ RESOLVED
+```
+
+**Usage:**
+1. Select desired filters
+2. Table updates automatically
+3. Combine multiple filters for precise searches
+
+#### Example Searches
+
+- **Find all critical drifts requiring attention:**
+  - Drift Status: Active
+  - Severity Level: Critical
+
+- **Track drifts currently being remediated:**
+  - Remediation Status: REMEDIATION_RUNNING, VALIDATION_RUNNING
+
+- **Review recent resolutions:**
+  - Drift Status: Resolved
+  - Sort by "Resolved" column (newest first)
+
+### GitHub Issue Format
+
+The dashboard automatically parses GitHub issues created by the Terraform Drift Analyzer agent. Issues must include:
+
+```markdown
+Drift ID: drift-prod-ec2-001
+Resource Name: prod-web-server
+Resource Type: aws_instance
+Severity: Critical
+Detection Timestamp: 2026-06-08 10:30:00
+Current Status: REMEDIATION_RUNNING
+Teams Notification Status: SENT
+
+Drift Description:
+The EC2 instance is missing the required Environment tag...
+
+[Additional details in issue body]
+```
+
+**Required GitHub Issue Labels:**
+- `terraform-drift` — Marks issue as drift-related (mandatory)
+- `severity-critical`, `severity-high`, `severity-medium`, `severity-low` — Severity level
+- `status-detected`, `status-issue-created`, `status-notified`, `status-remediation-running`, `status-validation-running`, `status-resolved` — Current remediation status
+
+### Webhook Integration (Optional)
+
+Enable real-time dashboard updates via GitHub webhooks.
+
+#### Setup Instructions
+
+##### Step 1: Generate Webhook Secret
+
+```powershell
+# Generate a random webhook secret (run in PowerShell)
+$bytes = New-Object Byte[] 32
+(New-Object Security.Cryptography.RNGCryptoServiceProvider).GetBytes($bytes)
+[Convert]::ToBase64String($bytes)
+```
+
+Copy the output and add to `.env`:
+```env
+GITHUB_WEBHOOK_SECRET=your_generated_secret
+ENABLE_WEBHOOK=true
+WEBHOOK_PORT=5000
+```
+
+##### Step 2: Configure GitHub Webhook
+
+1. Go to GitHub Repository → Settings → Webhooks
+2. Click "Add webhook"
+3. Configure:
+   - **Payload URL:** `http://your-server:5000/webhook`
+   - **Content type:** `application/json`
+   - **Secret:** Paste your webhook secret
+   - **Events:** Select "Let me select individual events"
+     - ✅ Issue comments
+     - ✅ Issues
+     - ✅ Pull requests
+   - **Active:** ✅ Checked
+
+4. Click "Add webhook"
+
+##### Step 3: Run Dashboard with Webhook Support
+
+```powershell
+# Start webhook server in background
+# Note: Currently webhook is integrated; see webhook_server.py
+
+# Run dashboard normally
+streamlit run src/dashboard/app.py
+```
+
+**Webhook Events Processed:**
+- `opened` — New drift issue created
+- `edited` — Issue updated with new information
+- `closed` — Drift remediated and issue closed
+- `reopened` — Drift reappeared after remediation
+
+### Testing the Dashboard
+
+#### Manual Testing Checklist
+
+##### Environment Setup
+- [ ] Virtual environment activated
+- [ ] `pip install -r requirements.txt` completed
+- [ ] `.env` file created with required variables
+- [ ] GitHub token configured and has `repo` scope
+- [ ] Target repository exists and is accessible
+
+##### Dashboard Launch
+```powershell
+streamlit run src/dashboard/app.py
+```
+- [ ] Dashboard loads without errors
+- [ ] No configuration errors displayed
+- [ ] "Terraform Drift Analyzer Dashboard" title appears
+- [ ] Streamlit menu (☰) visible in top-right
+
+##### Data Loading
+- [ ] Dashboard fetches drift data from GitHub
+- [ ] "Fetching drift data..." spinner appears and completes
+- [ ] Summary metrics display with numeric values
+- [ ] Active drifts table shows issues (or "No active drift issues" message)
+
+##### Filtering Functionality
+- [ ] Sidebar filters appear on left side
+- [ ] Multiselect filters work (click to select/deselect)
+- [ ] Table updates immediately when filter changed
+- [ ] Combined filters work correctly
+- [ ] Severity filter shows correct color coding:
+  - Critical: 🔴 Red
+  - High: 🟠 Orange
+  - Medium: 🟡 Yellow
+  - Low: 🟢 Green
+
+##### Tab Navigation
+- [ ] All three tabs visible: "Active Drifts", "Resolved Drifts", "Details"
+- [ ] Clicking tabs switches views
+- [ ] Tables render correctly in each tab
+- [ ] Metrics persist across tab switches
+
+##### Active Drifts Tab
+- [ ] Shows only open issues
+- [ ] Columns display: Drift ID, Resource, Severity, Status, Detection Time, Issue #, Age
+- [ ] GitHub issue links are clickable
+- [ ] Records sorted by severity (Critical first)
+- [ ] "Total: X active issues" count displayed
+
+##### Resolved Drifts Tab
+- [ ] Shows only closed issues (or none if no resolved)
+- [ ] Displays Resolution Time duration
+- [ ] Records sorted by closure time (newest first)
+- [ ] Can see trend of how quickly drifts are being resolved
+
+##### Details Tab
+- [ ] Dropdown shows all available drifts
+- [ ] Selecting a drift displays detailed information
+- [ ] Shows full description and history
+- [ ] Resolution time calculated correctly
+- [ ] Links to GitHub issues are functional
+
+##### Metrics Display
+- [ ] All metric cards render correctly
+- [ ] Metrics update when filters applied
+- [ ] Average resolution time calculates correctly
+- [ ] Critical count matches filtered results
+- [ ] Total metrics add up correctly
+
+##### Responsive Design
+- [ ] Dashboard works on different screen sizes
+- [ ] Tables scroll horizontally on narrow screens
+- [ ] Columns remain readable
+- [ ] Metrics stack properly on mobile layout
+
+##### Error Handling
+- [ ] Missing GITHUB_TOKEN shows clear error message
+- [ ] Missing repo config shows clear error message
+- [ ] Network errors display gracefully
+- [ ] Invalid dates don't crash the dashboard
+
+#### Automated Testing
+
+Run the included test suite:
+
+```powershell
+# Run all dashboard tests
+pytest tests/ -v -k dashboard
+
+# Run specific test file
+pytest tests/test_dashboard.py -v
+
+# Run with coverage
+pytest tests/ --cov=src/dashboard --cov-report=term-missing
+```
+
+**Test Files:**
+- `tests/test_github_client.py` — GitHub API integration tests
+- `tests/test_models.py` — Data model and validation tests
+- `tests/test_dashboard.py` — Streamlit dashboard component tests
+
+#### Integration Testing
+
+Test end-to-end flow with real GitHub issues:
+
+```powershell
+# 1. Create test issue in GitHub (with terraform-drift label)
+# 2. Run dashboard
+streamlit run src/dashboard/app.py
+
+# 3. Verify issue appears in Active Drifts tab
+# 4. Update issue status in GitHub (e.g., add severity-critical label)
+# 5. Refresh dashboard manually (button in UI)
+# 6. Verify changes reflected
+
+# 7. Close issue in GitHub
+# 8. Refresh dashboard
+# 9. Verify issue moved to Resolved tab
+```
+
+#### Performance Testing
+
+```powershell
+# Test with large number of issues
+# Monitor:
+# - Dashboard load time (target: < 5 seconds)
+# - Filter response time (target: < 1 second)
+# - Memory usage (target: < 500MB)
+# - CPU usage (target: < 30%)
+
+# Measure with timing:
+time streamlit run src/dashboard/app.py
+```
+
+### Dashboard Configuration
+
+Fine-tune dashboard behavior with environment variables:
+
+```env
+# Refresh interval for checking GitHub (seconds)
+DASHBOARD_REFRESH_INTERVAL=60
+
+# Maximum issues per page
+DASHBOARD_PAGE_SIZE=50
+
+# Debug mode (verbose logging)
+DEBUG=false
+
+# Webhook server port
+WEBHOOK_PORT=5000
+
+# Auto-refresh on webhook events
+ENABLE_WEBHOOK=true
+```
+
+### Troubleshooting Dashboard Issues
+
+#### Issue: "Configuration Error: Please set GITHUB_TOKEN..."
+
+```
+Solution:
+1. Verify .env file exists in project root
+2. Confirm GITHUB_TOKEN is set in .env
+3. Ensure token has 'repo' scope
+4. Token should start with 'ghp_'
+```
+
+#### Issue: "Configuration Missing: Please set GITHUB_REPO_OWNER..."
+
+```
+Solution:
+1. Add to .env:
+   GITHUB_REPO_OWNER=your_org
+   GITHUB_REPO_NAME=your_repo
+2. Verify repository exists and is accessible
+3. Verify token has access to the repository
+```
+
+#### Issue: Dashboard loads but shows "No drift records found"
+
+```
+Solution:
+1. Verify issues exist in repository
+2. Check issues have 'terraform-drift' label
+3. Verify issue body format matches expected format
+4. Check GitHub issue link directly - can you see it?
+5. Verify token has read access to issues
+```
+
+#### Issue: Filters not working or table empty
+
+```
+Solution:
+1. Check that filter selections are appropriate
+2. Try "All" status to see all issues
+3. Clear all filters and refresh
+4. Check browser console for JavaScript errors
+5. Restart Streamlit: Ctrl+C and rerun
+```
+
+#### Issue: Dashboard is slow
+
+```
+Solution:
+1. Increase DASHBOARD_REFRESH_INTERVAL (fewer API calls)
+2. Reduce DASHBOARD_PAGE_SIZE (load fewer issues)
+3. Check GitHub API rate limits: 
+   curl -H "Authorization: token $GITHUB_TOKEN" \
+     https://api.github.com/rate_limit
+4. Verify network connectivity to GitHub
+```
+
+---
+
 ## Integration Features
 
 ### GitHub Integration
@@ -665,6 +1152,13 @@ python src/main.py --check --workspace prod
 │   ├── main.py                    # CLI + agent + GitHub/Teams orchestration
 │   ├── llm_policy_analyzer.py     # LLM-based policy analysis
 │   ├── impact_assessment_formatter.py # Violation formatting
+│   ├── dashboard/                 # ⭐ NEW: Streamlit Dashboard
+│   │   ├── __init__.py
+│   │   ├── app.py                 # Main Streamlit application
+│   │   ├── github_client.py       # GitHub API integration
+│   │   ├── models.py              # Data models and analytics
+│   │   ├── config.py              # Configuration management
+│   │   └── webhook_server.py      # GitHub webhook handling
 │   ├── rag/
 │   │   ├── __init__.py
 │   │   └── vector_store.py        # Chroma + embeddings initialization
@@ -684,6 +1178,8 @@ python src/main.py --check --workspace prod
 │   ├── security_groups.yaml       # Ingress/egress rules
 │   └── teams.yaml                 # Resource ownership
 ├── docs/
+│   ├── dashboard_architecture.md  # Dashboard design details
+│   ├── dashboard_requirements.md  # Dashboard requirements
 │   └── terraform_best_practices.md
 ├── test_infrastructure/
 │   ├── main.tf, outputs.tf, etc.  # Test resources

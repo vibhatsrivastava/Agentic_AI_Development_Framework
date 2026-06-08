@@ -83,3 +83,5 @@ docs/EXECUTIVE_PRESENTATION.md
 scripts/generate_executive_presentation.py
 scripts/requirements_presentation.txt
 *.sqlite3
+projects/05_terraform_drift_detector/.streamlit/secrets.toml
+projects/05_terraform_drift_detector/CONTINUE.md
