@@ -1,6 +1,6 @@
 # HashiCorp Vault Integration
 
-This document explains how to use HashiCorp Vault for centralized secret management in Langchain Development Projects.
+This document explains how to use HashiCorp Vault for centralized secret management in LangChain Development Projects.
 
 ---
 
